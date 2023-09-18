@@ -1,2 +1,2 @@
-# safe-mpc
-Safe MPC using Learned Viability
+# WIP
+Refer to the following [repo](https://github.com/GianniLunardi/VBOC/tree/icra)
