@@ -3,3 +3,4 @@
 *.pkl
 *.json
 **/c_generated_code/
+**/__pycache__/
