@@ -28,7 +28,7 @@ class VbocLikeController(SafeBackupController):
         self.model.p = p
         self.ocp.cost.cost_type_0 = 'EXTERNAL'
         self.ocp.model.cost_expr_ext_cost_0 = dot(p, self.model.x[:self.model.nv])
-        self.ocp.parameter_values = np.array([0., 0., 0.])
+        self.ocp.parameter_values = np.zeros((self.model.nv,))
 
         # Set the cost to zero for LINEAR_LS
         self.ocp.cost.W = np.zeros((self.model.ny, self.model.ny))
@@ -52,8 +52,8 @@ class VbocLikeController(SafeBackupController):
 
         # Set the initial constraint
         d = np.array([self.model.p.tolist()])
-        self.C[:self.model.nv, self.model.nq:] = np.eye(3) - np.matmul(d.T, d)
-        self.C[3, 3:] = d
+        self.C[:self.model.nv, self.model.nq:] = np.eye(self.model.nv) - np.matmul(d.T, d)
+        self.C[self.model.nv, self.model.nq:] = d
         self.ocp_solver.constraints_set(0, "C", self.C, api='new')
 
         # norm(v0) <= v_norm only for time step 0
