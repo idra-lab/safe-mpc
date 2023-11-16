@@ -18,6 +18,10 @@ model:
   u_min: -10
   u_max: 10
 
+simulator:
+  dt: 5e-3
+  integrator_type: 4  # RK4
+
 controller:
   dt: 5e-3
   T: 0.18
