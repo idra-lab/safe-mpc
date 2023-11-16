@@ -8,7 +8,7 @@ class DoublePendulumModel(AbstractModel):
 
     def addDynamicsModel(self, params):
         """ Define the double pendulum dynamics model. """
-        self.model.name = "double_pendulum"
+        self.amodel.name = "double_pendulum"
 
         self.x = SX.sym("x", 4)
         self.x_dot = SX.sym("x_dot", 4)
@@ -75,7 +75,7 @@ class TriplePendulumModel(AbstractModel):
 
     def addDynamicsModel(self, params):
         """ Define the triple pendulum dynamics model. """
-        self.model.name = "triple_pendulum"
+        self.amodel.name = "triple_pendulum"
 
         self.x = SX.sym("x", 6)
         self.x_dot = SX.sym("x_dot", 6)
