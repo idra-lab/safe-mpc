@@ -1,0 +1,28 @@
+n_steps: 100
+test_num: 100
+cpu_num: 20
+regenerate: true
+
+model:
+  l1: 0.8
+  l2: 0.8
+  l3: 0.8
+  g: 9.81
+  m1: 0.4
+  m2: 0.4
+  m3: 0.4
+  q_min: -0.25      # defined as fraction of pi
+  q_max: 0.25
+  dq_min: -10
+  dq_max: 10
+  u_min: -10
+  u_max: 10
+
+controller:
+  dt: 5e-3
+  T: 0.18
+  solver_type: 'SQP'  # 'SQP_RTI'
+  qp_max_iter: 100
+  safety_margin: 10
+  ws_terminal: 1e8
+  ws_running: 1e8
