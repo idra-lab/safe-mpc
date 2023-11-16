@@ -3,6 +3,25 @@ import re
 import scipy.linalg as lin
 from casadi import SX, vertcat, repmat, fmax, norm_2
 from acados_template import AcadosModel, AcadosSim, AcadosSimSolver, AcadosOcp, AcadosOcpSolver
+import torch
+import torch.nn as nn
+
+
+class NeuralNetDIR(nn.Module):
+    def __init__(self, input_size, hidden_size, output_size):
+        super(NeuralNetDIR, self).__init__()
+        self.linear_relu_stack = nn.Sequential(
+            nn.Linear(input_size, hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, output_size),
+            nn.ReLU(),
+        )
+
+    def forward(self, x):
+        out = self.linear_relu_stack(x)
+        return out
 
 
 class AbstractModel:
@@ -31,7 +50,6 @@ class AbstractModel:
         # Joint limits
         self.u_min = -params.u_max * np.ones(self.nu)
         self.u_max = params.u_max * np.ones(self.nu)
-
         self.x_min = np.hstack([params.q_min * np.ones(self.nq), -params.dq_max * np.ones(self.nq)])
         self.x_max = np.hstack([params.q_max * np.ones(self.nq), params.dq_max * np.ones(self.nq)])
 
@@ -50,40 +68,48 @@ class AbstractModel:
     def checkRunningConstraints(self, x, u):
         return self.checkStateConstraints(x) and self.checkControlConstraints(u)
 
-    def checkDynamicsConstraints(self, x, u):
-        pass
+    # TODO: build a unique class called AbstractDynamics for both AbstractModel and SimDynamics
 
     def checkSafeConstraints(self, x):
         return True if self.nn_model(x) >= 0. else False
 
-    def getNNmodel(self, params, mean, std, safety_margin, x):
-        vel_norm = fmax(norm_2(x[self.nq:]), 1e-3)
+    def setNNmodel(self, params):
+        device = torch.device('cuda')
+        model = NeuralNetDIR(self.nx, (self.nx - 1) * 100, 1).to(device)
+        model.load_state_dict(torch.load(params.NN_DIR + 'model_3dof_vboc', map_location=device))
+        mean = torch.load(params.NN_DIR + 'mean_3dof_vboc')
+        std = torch.load(params.NN_DIR + 'std_3dof_vboc')
+        weights = list(model.parameters())
+        
+        vel_norm = fmax(norm_2(self.x[self.nq:]), 1e-3)
         mean_vec = vertcat([mean] * self.nq, [0] * self.nq)
         std_vec = vertcat([std] * self.nq, repmat(vel_norm, self.nq, 1))
-        out = (x - mean_vec) / std_vec
+        out = (self.x - mean_vec) / std_vec
 
         i = 0
-        for param in params:
-            param = SX(param.tolist())
+        for weight in weights:
+            weight = SX(weight.tolist())
             if i % 2 == 0:
-                out = param @ out
+                out = weight @ out
             else:
-                out = param + out
+                out = weight + out
                 if i == 1 or i == 3:
                     out = fmax(0., out)
             i += 1
-        self.nn_model = out * (100 - safety_margin) / 100 - vel_norm
+        self.nn_model = out * (100 - params.alpha) / 100 - vel_norm
 
 
 class SimDynamics:
     def __init__(self, params, model):
         self.model = model
         sim = AcadosSim()
-        sim.model = model.model
+        sim.model = model.amodel
         sim.solver_options.T = params.dt
         sim.solver_options.num_stages = 4
         sim.parameter_values = np.array([0.])
-        self.integrator = AcadosSimSolver(sim, build=params.regenerate)
+        gen_name = params.GEN_DIR + '/sim_' + sim.model.name
+        sim.code_export_directory = gen_name
+        self.integrator = AcadosSimSolver(sim, build=params.regenerate, json_file=gen_name + '.json')
 
     def simulate(self, x, u):
         self.integrator.set("x", x)
@@ -92,10 +118,23 @@ class SimDynamics:
         x_next = self.integrator.get("x")
         return x_next
 
+    def checkDynamicsConstraints(self, x, u):
+        # Rollout the control sequence
+        n = np.shape(u)[0]
+        x_sim = np.zeros((n + 1, self.model.nx))
+        x_sim[0] = np.copy(x[0])
+        for i in range(n):
+            x_sim[i + 1] = self.simulate(x_sim[i], u[i])
+        # Check if the rollout state trajectory is almost equal to the optimal one
+        print('Norm diff: ', np.linalg.norm(x - x_sim))
+        return True if np.linalg.norm(x - x_sim) < 1e-3 else False
+
 
 class AbstractController:
-    def __init__(self, params, model):
+    def __init__(self, params, model, simulator):
+        self.ocp_name = "".join(re.findall('[A-Z][^A-Z]*', self.__class__.__name__)[:-1]).lower()
         self.model = model
+        self.simulator = simulator
         self.N = params.N
         self.ocp = AcadosOcp()
 
@@ -148,13 +187,10 @@ class AbstractController:
         # Additional settings, in general is an empty method
         self.additionalSetting(params)
 
-        self.ocp.model = model.amodel
-        clas_name = self.__class__.__name__
-        gen_name = params.GEN_DIR + '/ocp_' + "".join(re.findall('[A-Z][a-z]*', clas_name)[:-1]).lower()
+        self.ocp.model = self.model.amodel
+        gen_name = params.GEN_DIR + 'ocp_' + self.ocp_name + '_' + self.model.amodel.name
         self.ocp.code_export_directory = gen_name
         self.ocp_solver = AcadosOcpSolver(self.ocp, json_file=gen_name + '.json', build=params.regenerate)
-        # TODO: check if the RE and folder/json generation are correct
-        # TODO: add GEN_DIR in params (actually is in definitions)
 
         # Initialize guess
         self.success = 0
@@ -169,6 +205,36 @@ class AbstractController:
 
     def additionalSetting(self, params):
         pass
+
+    def terminalConstraint(self, params, soft=True):
+        self.model.setNNmodel(params)
+        self.model.amodel.con_h_expr_e = self.model.nn_model
+
+        self.ocp.constraints.lh_e = np.array([0.])
+        self.ocp.constraints.uh_e = np.array([1e6])
+
+        if soft:
+            self.ocp.constraints.idxsh_e = np.array([0])
+
+            self.ocp.cost.zl_e = np.zeros((1,))
+            self.ocp.cost.zu_e = np.zeros((1,))
+            self.ocp.cost.Zu_e = np.zeros((1,))
+            self.ocp.cost.Zl_e = np.ones((1,)) * params.Zl_e
+
+    def runningConstraint(self, params, soft=True):
+        # Suppose that the NN model is already set
+        self.model.amodel.con_h_expr = self.model.nn_model
+
+        self.ocp.constraints.lh = np.array([0.])
+        self.ocp.constraints.uh = np.array([1e6])
+
+        if soft:
+            self.ocp.constraints.idxsh = np.array([0])
+
+            self.ocp.cost.zl = np.zeros((1,))
+            self.ocp.cost.zu = np.zeros((1,))
+            self.ocp.cost.Zu = np.zeros((1,))
+            self.ocp.cost.Zl = np.ones((1,)) * params.Zl
 
     def solve(self, x0):
         # Reset current iterate
@@ -232,11 +298,11 @@ class AbstractController:
         self.x_ref = x_ref
 
     def getTime(self):
-        return self.time
+        return np.copy(self.time)
 
     def setGuess(self, x_guess, u_guess):
         self.x_guess = x_guess
         self.u_guess = u_guess
 
     def getGuess(self):
-        return self.x_guess, self.u_guess
+        return np.copy(self.x_guess), np.copy(self.u_guess)
