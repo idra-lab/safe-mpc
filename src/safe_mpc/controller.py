@@ -3,20 +3,26 @@ from .abstract import AbstractController
 
 
 class NaiveController(AbstractController):
-    def __init__(self, params, model):
-        super().__init__(params, model)
+    def __init__(self, params, model, simulator):
+        super().__init__(params, model, simulator)
+
+    def checkGuess(self, x, u):
+        return self.model.checkRunningConstraints(x, u)
 
     def initialize(self, x0):
+        # Trivial guess
+        self.x_guess = np.full((self.N + 1, self.model.nx), x0)
+        # Solve the OCP
         status = self.solve(x0)
-        # TODO: provide the initial trivial guess
+        # print('status = ', status)
         if status == 0 or status == 2:
             for i in range(self.N):
                 self.x_guess[i] = self.ocp_solver.get(i, "x")
                 self.u_guess[i] = self.ocp_solver.get(i, "u")
             self.x_guess[self.N] = self.ocp_solver.get(self.N, "x")
 
-            if self.model.checkStateConstraints(self.x_guess) and \
-                    self.model.checkControlConstraints(self.u_guess):
+            if self.checkGuess(self.x_guess, self.u_guess) and \
+               self.simulator.checkDynamicsConstraints(self.x_guess, self.u_guess):
                 self.success += 1
             else:
                 self.x_guess *= np.nan
@@ -35,27 +41,17 @@ class NaiveController(AbstractController):
 
 
 class STController(NaiveController):
-    def __init__(self, params, model):
-        super().__init__(params, model)
+    def __init__(self, params, model, simulator):
+        super().__init__(params, model, simulator)
 
     def additionalSetting(self, params):
-        self.model.con_h_expr_e = self.model.nn_model
-
-        self.ocp.constraints.lh_e = np.array([0.])
-        self.ocp.constraints.uh_e = np.array([1e6])
-
-        self.ocp.constraints.idxsh_e = np.array([0])
-
-        self.ocp.cost.zl_e = np.zeros((1,))
-        self.ocp.cost.zu_e = np.zeros((1,))
-        self.ocp.cost.Zu_e = np.zeros((1,))
-        self.ocp.cost.Zl_e = np.ones((1,)) * params.Zl_e
+        self.terminalConstraint(params)
 
 
-class STWAController(AbstractController):
-    def __init__(self, params, model):
-        super().__init__(params, model)
-        self.x_viable = None                # TODO: see where it is convenient to initialize
+class STWAController(STController):
+    def __init__(self, params, model, simulator):
+        super().__init__(params, model, simulator)
+        self.x_viable = None                # TODO: to be initialized
 
     def step(self, x):
         status = self.solve(x)
@@ -72,21 +68,27 @@ class STWAController(AbstractController):
 
 
 class HTWAController(STWAController):
-    def __init__(self, params, model):
-        super().__init__(params, model)
+    def __init__(self, params, model, simulator):
+        super().__init__(params, model, simulator)
 
     def additionalSetting(self, params):
-        self.model.con_h_expr_e = self.model.nn_model
+        self.terminalConstraint(params, soft=False)
 
-        self.ocp.constraints.lh_e = np.array([0.])
-        self.ocp.constraints.uh_e = np.array([1e6])
+    def checkGuess(self, x, u):
+        # Check also the terminal constraint
+        return self.model.checkRunningConstraints(x, u) and self.model.checkSafeConstraints(x[-1])
 
 
-class RecedingController(AbstractController):
-    def __init__(self, params, model):
-        super().__init__(params, model)
+class RecedingController(NaiveController):
+    def __init__(self, params, model, simulator):
+        super().__init__(params, model, simulator)
         self.x_viable = None                # TODO: to be initialized
         self.r = self.N
+
+    def additionalSetting(self, params):
+        # Terminal constraint before, since it construct the nn model
+        self.terminalConstraint(params)
+        self.runningConstraint(params)
 
     def step(self, x):
         # Terminal constraint
