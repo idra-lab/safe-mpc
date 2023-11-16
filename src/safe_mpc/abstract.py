@@ -26,6 +26,7 @@ class NeuralNetDIR(nn.Module):
 
 class AbstractModel:
     def __init__(self, params):
+        self.params = params
         self.amodel = AcadosModel()
         # Dummy dynamics (double integrator)
         self.amodel.name = "double_integrator"
@@ -68,17 +69,15 @@ class AbstractModel:
     def checkRunningConstraints(self, x, u):
         return self.checkStateConstraints(x) and self.checkControlConstraints(u)
 
-    # TODO: build a unique class called AbstractDynamics for both AbstractModel and SimDynamics
-
     def checkSafeConstraints(self, x):
         return True if self.nn_model(x) >= 0. else False
 
-    def setNNmodel(self, params):
+    def setNNmodel(self):
         device = torch.device('cuda')
         model = NeuralNetDIR(self.nx, (self.nx - 1) * 100, 1).to(device)
-        model.load_state_dict(torch.load(params.NN_DIR + 'model_3dof_vboc', map_location=device))
-        mean = torch.load(params.NN_DIR + 'mean_3dof_vboc')
-        std = torch.load(params.NN_DIR + 'std_3dof_vboc')
+        model.load_state_dict(torch.load(self.params.NN_DIR + 'model_3dof_vboc', map_location=device))
+        mean = torch.load(self.params.NN_DIR + 'mean_3dof_vboc')
+        std = torch.load(self.params.NN_DIR + 'std_3dof_vboc')
         weights = list(model.parameters())
         
         vel_norm = fmax(norm_2(self.x[self.nq:]), 1e-3)
@@ -96,20 +95,21 @@ class AbstractModel:
                 if i == 1 or i == 3:
                     out = fmax(0., out)
             i += 1
-        self.nn_model = out * (100 - params.alpha) / 100 - vel_norm
+        self.nn_model = out * (100 - self.params.alpha) / 100 - vel_norm
 
 
 class SimDynamics:
-    def __init__(self, params, model):
+    def __init__(self, model):
         self.model = model
+        self.params = model.params
         sim = AcadosSim()
         sim.model = model.amodel
-        sim.solver_options.T = params.dt
-        sim.solver_options.num_stages = 4
+        sim.solver_options.T = self.params.dt_s
+        sim.solver_options.num_stages = self.params.integrator_type
         sim.parameter_values = np.array([0.])
-        gen_name = params.GEN_DIR + '/sim_' + sim.model.name
+        gen_name = self.params.GEN_DIR + '/sim_' + sim.model.name
         sim.code_export_directory = gen_name
-        self.integrator = AcadosSimSolver(sim, build=params.regenerate, json_file=gen_name + '.json')
+        self.integrator = AcadosSimSolver(sim, build=self.params.regenerate, json_file=gen_name + '.json')
 
     def simulate(self, x, u):
         self.integrator.set("x", x)
@@ -131,21 +131,23 @@ class SimDynamics:
 
 
 class AbstractController:
-    def __init__(self, params, model, simulator):
+    def __init__(self, simulator):
         self.ocp_name = "".join(re.findall('[A-Z][^A-Z]*', self.__class__.__name__)[:-1]).lower()
-        self.model = model
         self.simulator = simulator
-        self.N = params.N
+        self.params = simulator.params
+        self.model = simulator.model
+
+        self.N = self.params.N
         self.ocp = AcadosOcp()
 
         # Dimensions
-        self.ocp.solver_options.tf = params.T
-        self.ocp.dims.N = params.N
+        self.ocp.solver_options.tf = self.params.T
+        self.ocp.dims.N = self.params.N
 
         # Cost
-        self.Q = 1e-4 * np.eye(model.nx)
+        self.Q = 1e-4 * np.eye(self.model.nx)
         self.Q[0, 0] = 5e2
-        self.R = 1e-4 * np.eye(model.nu)
+        self.R = 1e-4 * np.eye(self.model.nu)
 
         self.ocp.cost.W = lin.block_diag(self.Q, self.R)
         self.ocp.cost.W_e = self.Q
@@ -153,61 +155,61 @@ class AbstractController:
         self.ocp.cost.cost_type = "LINEAR_LS"
         self.ocp.cost.cost_type_e = "LINEAR_LS"
 
-        self.ocp.cost.Vx = np.zeros((model.ny, model.nx))
-        self.ocp.cost.Vx[:model.nx, :model.nx] = np.eye(model.nx)
-        self.ocp.cost.Vu = np.zeros((model.ny, model.nu))
-        self.ocp.cost.Vu[model.nx:, :model.nu] = np.eye(model.nu)
-        self.ocp.cost.Vx_e = np.eye(model.nx)
+        self.ocp.cost.Vx = np.zeros((self.model.ny, self.model.nx))
+        self.ocp.cost.Vx[:self.model.nx, :self.model.nx] = np.eye(self.model.nx)
+        self.ocp.cost.Vu = np.zeros((self.model.ny, self.model.nu))
+        self.ocp.cost.Vu[self.model.nx:, :self.model.nu] = np.eye(self.model.nu)
+        self.ocp.cost.Vx_e = np.eye(self.model.nx)
 
-        self.ocp.cost.yref = np.zeros(model.ny)
-        self.ocp.cost.yref_e = np.zeros(model.nx)
+        self.ocp.cost.yref = np.zeros(self.model.ny)
+        self.ocp.cost.yref_e = np.zeros(self.model.nx)
         self.ocp.parameter_values = np.array([0.])
 
         # Constraints
-        self.ocp.constraints.lbx_0 = model.x_min
-        self.ocp.constraints.ubx_0 = model.x_max
-        self.ocp.constraints.idxbx_0 = np.arange(model.nx)
+        self.ocp.constraints.lbx_0 = self.model.x_min
+        self.ocp.constraints.ubx_0 = self.model.x_max
+        self.ocp.constraints.idxbx_0 = np.arange(self.model.nx)
 
-        self.ocp.constraints.lbu = model.u_min
-        self.ocp.constraints.ubu = model.u_max
-        self.ocp.constraints.idxbu = np.arange(model.nu)
-        self.ocp.constraints.lbx = model.x_min
-        self.ocp.constraints.ubx = model.x_max
-        self.ocp.constraints.idxbx = np.arange(model.nx)
+        self.ocp.constraints.lbu = self.model.u_min
+        self.ocp.constraints.ubu = self.model.u_max
+        self.ocp.constraints.idxbu = np.arange(self.model.nu)
+        self.ocp.constraints.lbx = self.model.x_min
+        self.ocp.constraints.ubx = self.model.x_max
+        self.ocp.constraints.idxbx = np.arange(self.model.nx)
 
-        self.ocp.constraints.lbx_e = model.x_min
-        self.ocp.constraints.ubx_e = model.x_max
-        self.ocp.constraints.idxbx_e = np.arange(model.nx)
+        self.ocp.constraints.lbx_e = self.model.x_min
+        self.ocp.constraints.ubx_e = self.model.x_max
+        self.ocp.constraints.idxbx_e = np.arange(self.model.nx)
 
         # Solver options
-        self.ocp.solver_options.nlp_solver_type = params.solver_type
-        self.ocp.solver_options.qp_solver_iter_max = params.qp_max_iter
+        self.ocp.solver_options.nlp_solver_type = self.params.solver_type
+        self.ocp.solver_options.qp_solver_iter_max = self.params.qp_max_iter
         self.ocp.solver_options.globalization = "MERIT_BACKTRACKING"
 
         # Additional settings, in general is an empty method
-        self.additionalSetting(params)
+        self.additionalSetting()
 
         self.ocp.model = self.model.amodel
-        gen_name = params.GEN_DIR + 'ocp_' + self.ocp_name + '_' + self.model.amodel.name
+        gen_name = self.params.GEN_DIR + 'ocp_' + self.ocp_name + '_' + self.model.amodel.name
         self.ocp.code_export_directory = gen_name
-        self.ocp_solver = AcadosOcpSolver(self.ocp, json_file=gen_name + '.json', build=params.regenerate)
+        self.ocp_solver = AcadosOcpSolver(self.ocp, json_file=gen_name + '.json', build=self.params.regenerate)
 
         # Initialize guess
         self.success = 0
         self.fails = 0
         self.time = 0
-        self.x_ref = np.zeros(model.nx)
+        self.x_ref = np.zeros(self.model.nx)
 
         # Empty initial guess and temp vectors
         self.x_guess = np.zeros((self.N + 1, self.model.nx))
         self.u_guess = np.zeros((self.N, self.model.nu))
         self.x_temp, self.u_temp = np.copy(self.x_guess), np.copy(self.u_guess)
 
-    def additionalSetting(self, params):
+    def additionalSetting(self):
         pass
 
-    def terminalConstraint(self, params, soft=True):
-        self.model.setNNmodel(params)
+    def terminalConstraint(self, soft=True):
+        self.model.setNNmodel()
         self.model.amodel.con_h_expr_e = self.model.nn_model
 
         self.ocp.constraints.lh_e = np.array([0.])
@@ -219,9 +221,9 @@ class AbstractController:
             self.ocp.cost.zl_e = np.zeros((1,))
             self.ocp.cost.zu_e = np.zeros((1,))
             self.ocp.cost.Zu_e = np.zeros((1,))
-            self.ocp.cost.Zl_e = np.ones((1,)) * params.Zl_e
+            self.ocp.cost.Zl_e = np.ones((1,)) * self.params.Zl_e
 
-    def runningConstraint(self, params, soft=True):
+    def runningConstraint(self, soft=True):
         # Suppose that the NN model is already set
         self.model.amodel.con_h_expr = self.model.nn_model
 
@@ -234,7 +236,7 @@ class AbstractController:
             self.ocp.cost.zl = np.zeros((1,))
             self.ocp.cost.zu = np.zeros((1,))
             self.ocp.cost.Zu = np.zeros((1,))
-            self.ocp.cost.Zl = np.ones((1,)) * params.Zl
+            self.ocp.cost.Zl = np.ones((1,)) * self.params.Zl
 
     def solve(self, x0):
         # Reset current iterate

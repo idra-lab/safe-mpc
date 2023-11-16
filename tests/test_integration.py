@@ -1,5 +1,4 @@
 import numpy as np
-import matplotlib.pyplot as plt
 from scipy.stats import qmc
 from safe_mpc.parser import Parameters
 from safe_mpc.model import TriplePendulumModel
@@ -9,8 +8,8 @@ from debug import Debug
 
 conf = Parameters('../config/params.yaml')
 model = TriplePendulumModel(conf)
-simulator = SimDynamics(conf, model)
-ocp = NaiveController(conf, model, simulator)
+simulator = SimDynamics(model)
+ocp = NaiveController(simulator)
 debugger = Debug(conf, ocp)
 
 test_num = 100

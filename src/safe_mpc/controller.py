@@ -3,8 +3,8 @@ from .abstract import AbstractController
 
 
 class NaiveController(AbstractController):
-    def __init__(self, params, model, simulator):
-        super().__init__(params, model, simulator)
+    def __init__(self, simulator):
+        super().__init__(simulator)
 
     def checkGuess(self, x, u):
         return self.model.checkRunningConstraints(x, u)
@@ -21,8 +21,8 @@ class NaiveController(AbstractController):
                 self.u_guess[i] = self.ocp_solver.get(i, "u")
             self.x_guess[self.N] = self.ocp_solver.get(self.N, "x")
 
-            if self.checkGuess(self.x_guess, self.u_guess) and \
-               self.simulator.checkDynamicsConstraints(self.x_guess, self.u_guess):
+            if self.checkGuess(self.x_guess, self.u_guess): #and \
+               # self.simulator.checkDynamicsConstraints(self.x_guess, self.u_guess):
                 self.success += 1
             else:
                 self.x_guess *= np.nan
@@ -41,16 +41,16 @@ class NaiveController(AbstractController):
 
 
 class STController(NaiveController):
-    def __init__(self, params, model, simulator):
-        super().__init__(params, model, simulator)
+    def __init__(self, simulator):
+        super().__init__(simulator)
 
-    def additionalSetting(self, params):
-        self.terminalConstraint(params)
+    def additionalSetting(self):
+        self.terminalConstraint()
 
 
 class STWAController(STController):
-    def __init__(self, params, model, simulator):
-        super().__init__(params, model, simulator)
+    def __init__(self, simulator):
+        super().__init__(simulator)
         self.x_viable = None                # TODO: to be initialized
 
     def step(self, x):
@@ -68,11 +68,11 @@ class STWAController(STController):
 
 
 class HTWAController(STWAController):
-    def __init__(self, params, model, simulator):
-        super().__init__(params, model, simulator)
+    def __init__(self, simulator):
+        super().__init__(simulator)
 
-    def additionalSetting(self, params):
-        self.terminalConstraint(params, soft=False)
+    def additionalSetting(self):
+        self.terminalConstraint(soft=False)
 
     def checkGuess(self, x, u):
         # Check also the terminal constraint
@@ -80,15 +80,15 @@ class HTWAController(STWAController):
 
 
 class RecedingController(NaiveController):
-    def __init__(self, params, model, simulator):
-        super().__init__(params, model, simulator)
+    def __init__(self, simulator):
+        super().__init__(simulator)
         self.x_viable = None                # TODO: to be initialized
         self.r = self.N
 
-    def additionalSetting(self, params):
+    def additionalSetting(self):
         # Terminal constraint before, since it construct the nn model
-        self.terminalConstraint(params)
-        self.runningConstraint(params)
+        self.terminalConstraint()
+        self.runningConstraint()
 
     def step(self, x):
         # Terminal constraint

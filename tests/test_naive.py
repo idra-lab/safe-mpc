@@ -10,8 +10,8 @@ from debug import Debug
 
 conf = Parameters('../config/params.yaml')
 model = TriplePendulumModel(conf)
-simulator = SimDynamics(conf, model)
-ocp = NaiveController(conf, model, simulator)
+simulator = SimDynamics(model)
+ocp = NaiveController(simulator)
 
 t_g = np.arange(0, conf.T, conf.dt)
 t_s = np.arange(0, conf.dt * conf.n_steps, conf.dt)
@@ -69,7 +69,7 @@ print('Init guess success: ' + str(ocp.success) + ' over ' + str(conf.test_num))
 
 del ocp
 conf.solver_type = 'SQP_RTI'
-controller = NaiveController(conf, model, simulator)
+controller = NaiveController(simulator)
 debugger = Debug(conf, controller)
 controller.setReference(x_ref)
 

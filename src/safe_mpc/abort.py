@@ -4,13 +4,13 @@ from .abstract import AbstractController
 
 
 class SafeBackupController(AbstractController):
-    def __init__(self, params, model):
-        super().__init__(params, model)
-        self.Q = np.eye(model.nx)
-        self.Q[model.nq:, model.nq:] = np.eye(model.nv) * 1e4
+    def __init__(self, simulator):
+        super().__init__(simulator)
+        self.Q = np.eye(self.model.nx)
+        self.Q[self.model.nq:, self.model.nq:] = np.eye(self.model.nv) * 1e4
 
-        q_fin_lb = np.hstack([model.x_min[:model.nq], np.zeros(3)])
-        q_fin_ub = np.hstack([model.x_max[:model.nq], np.zeros(3)])
+        q_fin_lb = np.hstack([self.model.x_min[:self.model.nq], np.zeros(3)])
+        q_fin_ub = np.hstack([self.model.x_max[:self.model.nq], np.zeros(3)])
 
         self.ocp.constraints.lbx_e = q_fin_lb
         self.ocp.constraints.ubx_e = q_fin_ub
@@ -18,11 +18,11 @@ class SafeBackupController(AbstractController):
 
 
 class VbocLikeController(SafeBackupController):
-    def __init__(self, params, model):
-        super().__init__(params, model)
+    def __init__(self, simulator):
+        super().__init__(simulator)
         self.C = np.zeros((self.model.nv + 1, self.model.nx))
 
-    def additionalSetting(self, params):
+    def additionalSetting(self):
         # Define the external cost for t = 0
         p = SX.sym("p", self.model.nv)
         self.model.p = p

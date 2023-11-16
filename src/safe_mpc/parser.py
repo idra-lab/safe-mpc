@@ -34,6 +34,10 @@ class Parameters:
         self.u_min = float(model['u_min'])
         self.u_max = float(model['u_max'])
 
+        simulator = data['simulator']
+        self.dt_s = float(simulator['dt'])
+        self.integrator_type = int(simulator['integrator_type'])
+
         controller = data['controller']
         self.dt = float(controller['dt'])
         self.T = float(controller['T'])

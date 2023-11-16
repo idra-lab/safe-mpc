@@ -7,8 +7,6 @@ import safe_mpc.controller as controllers
 
 
 conf = Parameters('../config/params.yaml')
-model = TriplePendulumModel(conf)
-simulator = SimDynamics(conf, model)
 
 # Test all the controllers inside the imported module
 module_attributes = dir(controllers)
@@ -17,9 +15,10 @@ for cls in classes:
     print('Testing controller:', cls, file=sys.stderr)
     try:
         model = TriplePendulumModel(conf)
-        ocp = getattr(controllers, cls)(conf, model)
+        simulator = SimDynamics(model)
+        ocp = getattr(controllers, cls)(simulator)
         print('Initialization successful', file=sys.stderr)
-        del ocp, model                      # Clean up
+        del model, simulator, ocp                      # Clean up
     except Exception as e:
         print('Initialization failed', file=sys.stderr)
         print(e, file=sys.stderr)
