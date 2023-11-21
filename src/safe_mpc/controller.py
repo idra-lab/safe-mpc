@@ -12,8 +12,10 @@ class NaiveController(AbstractController):
     def initialize(self, x0):
         # Trivial guess
         self.x_guess = np.full((self.N + 1, self.model.nx), x0)
+        self.u_guess = np.zeros((self.N, self.model.nu))
         # Solve the OCP
         status = self.solve(x0)
+        # self.ocp_solver.print_statistics()
         # print('status = ', status)
         if status == 0 or status == 2:
             for i in range(self.N):
