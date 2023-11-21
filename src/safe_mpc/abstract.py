@@ -1,7 +1,8 @@
 import numpy as np
 import re
+from copy import deepcopy
 import scipy.linalg as lin
-from casadi import SX, vertcat, repmat, fmax, norm_2
+from casadi import SX, vertcat, fmax, norm_2, Function
 from acados_template import AcadosModel, AcadosSim, AcadosSimSolver, AcadosOcp, AcadosOcpSolver
 import torch
 import torch.nn as nn
@@ -56,6 +57,7 @@ class AbstractModel:
 
         # NN model (viability constraint)
         self.nn_model = None
+        self.nn_func = None
 
     def addDynamicsModel(self, params):
         pass
@@ -70,7 +72,7 @@ class AbstractModel:
         return self.checkStateConstraints(x) and self.checkControlConstraints(u)
 
     def checkSafeConstraints(self, x):
-        return True if self.nn_model(x) >= 0. else False
+        return True if float(self.nn_func(x, self.params.alpha).toarray()) >= 0. else False
 
     def setNNmodel(self):
         device = torch.device('cuda')
@@ -79,11 +81,13 @@ class AbstractModel:
         mean = torch.load(self.params.NN_DIR + 'mean_3dof_vboc')
         std = torch.load(self.params.NN_DIR + 'std_3dof_vboc')
         weights = list(model.parameters())
-        
-        vel_norm = fmax(norm_2(self.x[self.nq:]), 1e-3)
-        mean_vec = vertcat([mean] * self.nq, [0] * self.nq)
-        std_vec = vertcat([std] * self.nq, repmat(vel_norm, self.nq, 1))
-        out = (self.x - mean_vec) / std_vec
+
+        x_cp = deepcopy(self.x)
+        x_cp[self.nq] += 1e-8
+        vel_norm = fmax(norm_2(x_cp[self.nq:]), 1e-3)
+        pos = (x_cp[:self.nq] - mean) / std
+        vel_dir = x_cp[self.nq:] / vel_norm
+        out = vertcat(pos, vel_dir)
 
         i = 0
         for weight in weights:
@@ -95,7 +99,8 @@ class AbstractModel:
                 if i == 1 or i == 3:
                     out = fmax(0., out)
             i += 1
-        self.nn_model = out * (100 - self.params.alpha) / 100 - vel_norm
+        self.nn_model = out * (100 - self.p) / 100 - vel_norm
+        self.nn_func = Function('nn_func', [self.x, self.p], [self.nn_model])
 
 
 class SimDynamics:
@@ -144,6 +149,9 @@ class AbstractController:
         self.ocp.solver_options.tf = self.params.T
         self.ocp.dims.N = self.params.N
 
+        # Model
+        self.ocp.model = self.model.amodel
+
         # Cost
         self.Q = 1e-4 * np.eye(self.model.nx)
         self.Q[0, 0] = 5e2
@@ -163,6 +171,7 @@ class AbstractController:
 
         self.ocp.cost.yref = np.zeros(self.model.ny)
         self.ocp.cost.yref_e = np.zeros(self.model.nx)
+        # Set alpha to zero as default
         self.ocp.parameter_values = np.array([0.])
 
         # Constraints
@@ -183,13 +192,16 @@ class AbstractController:
 
         # Solver options
         self.ocp.solver_options.nlp_solver_type = self.params.solver_type
+        # self.ocp.solver_options.hessian_approx = "EXACT"
+        self.ocp.solver_options.nlp_solver_max_iter = 200
         self.ocp.solver_options.qp_solver_iter_max = self.params.qp_max_iter
         self.ocp.solver_options.globalization = "MERIT_BACKTRACKING"
+        # self.ocp.solver_options.alpha_reduction = 0.5
+        # self.ocp.solver_options.line_search_use_sufficient_descent = 1
 
         # Additional settings, in general is an empty method
         self.additionalSetting()
 
-        self.ocp.model = self.model.amodel
         gen_name = self.params.GEN_DIR + 'ocp_' + self.ocp_name + '_' + self.model.amodel.name
         self.ocp.code_export_directory = gen_name
         self.ocp_solver = AcadosOcpSolver(self.ocp, json_file=gen_name + '.json', build=self.params.regenerate)
