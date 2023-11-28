@@ -2,10 +2,11 @@ import numpy as np
 import re
 from copy import deepcopy
 import scipy.linalg as lin
-from casadi import SX, vertcat, fmax, norm_2, Function
+from casadi import MX, vertcat, norm_2, Function
 from acados_template import AcadosModel, AcadosSim, AcadosSimSolver, AcadosOcp, AcadosOcpSolver
 import torch
 import torch.nn as nn
+import l4casadi as l4c
 
 
 class NeuralNetDIR(nn.Module):
@@ -31,11 +32,11 @@ class AbstractModel:
         self.amodel = AcadosModel()
         # Dummy dynamics (double integrator)
         self.amodel.name = "double_integrator"
-        self.x = SX.sym("x")
-        self.x_dot = SX.sym("x_dot")
-        self.u = SX.sym("u")
+        self.x = MX.sym("x")
+        self.x_dot = MX.sym("x_dot")
+        self.u = MX.sym("u")
         self.f_expl = self.u
-        self.p = SX.sym("p")
+        self.p = MX.sym("p")
         self.addDynamicsModel(params)
         self.amodel.f_expl_expr = self.f_expl
         self.amodel.x = self.x
@@ -56,6 +57,7 @@ class AbstractModel:
         self.x_max = np.hstack([params.q_max * np.ones(self.nq), params.dq_max * np.ones(self.nq)])
 
         # NN model (viability constraint)
+        self.l4c_model = None
         self.nn_model = None
         self.nn_func = None
 
@@ -72,7 +74,7 @@ class AbstractModel:
         return self.checkStateConstraints(x) and self.checkControlConstraints(u)
 
     def checkSafeConstraints(self, x):
-        return True if float(self.nn_func(x, self.params.alpha).toarray()) >= 0. else False
+        return True if self.nn_func(x, self.params.alpha) >= 0. else False
 
     def setNNmodel(self):
         device = torch.device('cuda')
@@ -80,26 +82,32 @@ class AbstractModel:
         model.load_state_dict(torch.load(self.params.NN_DIR + 'model_3dof_vboc', map_location=device))
         mean = torch.load(self.params.NN_DIR + 'mean_3dof_vboc')
         std = torch.load(self.params.NN_DIR + 'std_3dof_vboc')
-        weights = list(model.parameters())
 
         x_cp = deepcopy(self.x)
-        x_cp[self.nq] += 1e-8
-        vel_norm = fmax(norm_2(x_cp[self.nq:]), 1e-3)
+        x_cp[self.nq] += 1e-6
+        vel_norm = norm_2(x_cp[self.nq:])
         pos = (x_cp[:self.nq] - mean) / std
         vel_dir = x_cp[self.nq:] / vel_norm
-        out = vertcat(pos, vel_dir)
+        state = vertcat(pos, vel_dir)
 
-        i = 0
-        for weight in weights:
-            weight = SX(weight.tolist())
-            if i % 2 == 0:
-                out = weight @ out
-            else:
-                out = weight + out
-                if i == 1 or i == 3:
-                    out = fmax(0., out)
-            i += 1
-        self.nn_model = out * (100 - self.p) / 100 - vel_norm
+        # i = 0
+        # out = state
+        # for weight in weights:
+        #     weight = MX(np.array(weight.tolist()))
+        #     if i % 2 == 0:
+        #         out = weight @ out
+        #     else:
+        #         out = weight + out
+        #         if i == 1 or i == 3:
+        #             out = fmax(0., out)
+        #     i += 1
+        # self.nn_model = out * (100 - self.p) / 100 - vel_norm
+
+        self.l4c_model = l4c.L4CasADi(model,
+                                      device='cuda',
+                                      name=self.amodel.name + '_model',
+                                      build_dir=self.params.GEN_DIR + 'nn_' + self.amodel.name)
+        self.nn_model = self.l4c_model(state) * (100 - self.p) / 100 - vel_norm
         self.nn_func = Function('nn_func', [self.x, self.p], [self.nn_model])
 
 
@@ -131,8 +139,7 @@ class SimDynamics:
         for i in range(n):
             x_sim[i + 1] = self.simulate(x_sim[i], u[i])
         # Check if the rollout state trajectory is almost equal to the optimal one
-        print('Norm diff: ', np.linalg.norm(x - x_sim))
-        return True if np.linalg.norm(x - x_sim) < 1e-3 else False
+        return True if np.linalg.norm(x - x_sim) < 1e-5 * np.sqrt(n+1) else False
 
 
 class AbstractController:
@@ -192,12 +199,10 @@ class AbstractController:
 
         # Solver options
         self.ocp.solver_options.nlp_solver_type = self.params.solver_type
-        # self.ocp.solver_options.hessian_approx = "EXACT"
-        self.ocp.solver_options.nlp_solver_max_iter = 200
+        self.ocp.solver_options.nlp_solver_max_iter = self.params.nlp_max_iter
         self.ocp.solver_options.qp_solver_iter_max = self.params.qp_max_iter
         self.ocp.solver_options.globalization = "MERIT_BACKTRACKING"
-        # self.ocp.solver_options.alpha_reduction = 0.5
-        # self.ocp.solver_options.line_search_use_sufficient_descent = 1
+        # self.ocp.solver_options.levenberg_marquardt = 1e2
 
         # Additional settings, in general is an empty method
         self.additionalSetting()
@@ -224,19 +229,22 @@ class AbstractController:
         self.model.setNNmodel()
         self.model.amodel.con_h_expr_e = self.model.nn_model
 
+        self.ocp.solver_options.model_external_shared_lib_dir = self.model.l4c_model.shared_lib_dir
+        self.ocp.solver_options.model_external_shared_lib_name = self.model.l4c_model.name
+
         self.ocp.constraints.lh_e = np.array([0.])
         self.ocp.constraints.uh_e = np.array([1e6])
 
         if soft:
             self.ocp.constraints.idxsh_e = np.array([0])
 
-            self.ocp.cost.zl_e = np.zeros((1,))
+            self.ocp.cost.zl_e = np.ones((1,)) * self.params.ws_t
             self.ocp.cost.zu_e = np.zeros((1,))
+            self.ocp.cost.Zl_e = np.zeros((1,))
             self.ocp.cost.Zu_e = np.zeros((1,))
-            self.ocp.cost.Zl_e = np.ones((1,)) * self.params.Zl_e
 
     def runningConstraint(self, soft=True):
-        # Suppose that the NN model is already set
+        # Suppose that the NN model is already set (same for external model shared lib)
         self.model.amodel.con_h_expr = self.model.nn_model
 
         self.ocp.constraints.lh = np.array([0.])
@@ -245,10 +253,10 @@ class AbstractController:
         if soft:
             self.ocp.constraints.idxsh = np.array([0])
 
-            self.ocp.cost.zl = np.zeros((1,))
+            self.ocp.cost.zl = np.ones((1,)) * self.params.ws_r
             self.ocp.cost.zu = np.zeros((1,))
+            self.ocp.cost.Zl = np.zeros((1,))
             self.ocp.cost.Zu = np.zeros((1,))
-            self.ocp.cost.Zl = np.ones((1,)) * self.params.Zl
 
     def solve(self, x0):
         # Reset current iterate

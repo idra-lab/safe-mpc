@@ -1,4 +1,4 @@
-from casadi import SX, vertcat, cos, sin
+from casadi import MX, vertcat, cos, sin
 from .abstract import AbstractModel
 
 
@@ -10,10 +10,10 @@ class DoublePendulumModel(AbstractModel):
         """ Define the double pendulum dynamics model. """
         self.amodel.name = "double_pendulum"
 
-        self.x = SX.sym("x", 4)
-        self.x_dot = SX.sym("x_dot", 4)
-        self.u = SX.sym("u", 2)
-        self.p = SX.sym("p", 1)
+        self.x = MX.sym("x", 4)
+        self.x_dot = MX.sym("x_dot", 4)
+        self.u = MX.sym("u", 2)
+        self.p = MX.sym("p", 1)
 
         # Dynamics
         self.f_expl = vertcat(
@@ -77,10 +77,10 @@ class TriplePendulumModel(AbstractModel):
         """ Define the triple pendulum dynamics model. """
         self.amodel.name = "triple_pendulum"
 
-        self.x = SX.sym("x", 6)
-        self.x_dot = SX.sym("x_dot", 6)
-        self.u = SX.sym("u", 3)
-        self.p = SX.sym("p", 1)
+        self.x = MX.sym("x", 6)
+        self.x_dot = MX.sym("x_dot", 6)
+        self.u = MX.sym("u", 3)
+        self.p = MX.sym("p", 1)
 
         # dynamics
         self.f_expl = vertcat(
