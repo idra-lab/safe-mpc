@@ -5,8 +5,8 @@ import matplotlib.pyplot as plt
 
 class Debug:
     def __init__(self, conf, controller):
+        plt.rcParams['axes.grid'] = True
         self.horizon = np.arange(0, conf.N * conf.dt, conf.dt)
-        self.tot_time = np.arange(0, conf.n_steps * conf.dt, conf.dt)
         self.conf = conf
         self.controller = controller
         # Create the temporary directories for debugging purposes
@@ -23,8 +23,9 @@ class Debug:
         fig, ax = plt.subplots(3, 1, sharex='col')
         for i in range(3):
             if x_sim is not None:
-                self.plotBounds(self.tot_time, ax[i])
-                ax[i].plot(self.tot_time, x_sim[:-1, i], label='q' + str(i + 1), color='darkblue',
+                t_sim = np.arange(0, np.shape(x_sim)[0] * self.conf.dt, self.conf.dt)
+                self.plotBounds(t_sim, ax[i])
+                ax[i].plot(t_sim, x_sim[:, i], label='q' + str(i + 1), color='darkblue',
                            linestyle='--', linewidth=2)
             else:
                 self.plotBounds(self.horizon, ax[i])
