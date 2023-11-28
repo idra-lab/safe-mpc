@@ -10,7 +10,7 @@ class Parameters:
         self.ROOT_DIR = self.PKG_DIR.split('/src/safe_mpc')[0]
         self.DATA_DIR = os.path.join(self.ROOT_DIR, 'data/')
         self.GEN_DIR = os.path.join(self.ROOT_DIR, 'generated/')
-        self.NN_DIR = os.path.join(self.DATA_DIR, 'nn_model/')
+        self.NN_DIR = os.path.join(self.DATA_DIR, 'relu_3dof/')
 
         # Load the parameters from the yaml file
         data = yaml.load(open(filename, 'r'), Loader=yaml.FullLoader)
@@ -42,11 +42,13 @@ class Parameters:
         self.dt = float(controller['dt'])
         self.T = float(controller['T'])
         self.N = int(self.T / self.dt)
+        self.x_ref = np.array(controller['x_ref'])
         self.solver_type = controller['solver_type']
+        self.nlp_max_iter = int(controller['nlp_max_iter'])
         self.qp_max_iter = int(controller['qp_max_iter'])
         self.alpha = int(controller['safety_margin'])
-        self.Zl = float(controller['ws_running'])
-        self.Zl_e = float(controller['ws_terminal'])
+        self.ws_r = float(controller['ws_r'])
+        self.ws_t = float(controller['ws_t'])
 
         self.Q = np.eye(6) * 1e-4
         self.R = np.eye(3) * 1e-4

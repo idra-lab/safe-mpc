@@ -25,8 +25,10 @@ simulator:
 controller:
   dt: 5e-3
   T: 0.175
+  x_ref: [3.8769, 3.14, 3.14, 0, 0, 0]
   solver_type: 'SQP'  # 'SQP_RTI'
-  qp_max_iter: 200
-  safety_margin: 10
-  ws_terminal: 1e8
-  ws_running: 1e8
+  nlp_max_iter: 100
+  qp_max_iter: 100
+  safety_margin: 2
+  ws_t: 1e4
+  ws_r: 1e4
