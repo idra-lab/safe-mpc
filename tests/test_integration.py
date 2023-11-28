@@ -28,17 +28,18 @@ def init_guess(p):
     x0 = np.zeros((model.nx,))
     x0[:model.nq] = x0_vec[p]
 
-    ocp.initialize(x0)
+    status = ocp.initialize(x0)
+    print('Problem: ', p, 'status: ', status)
     return ocp.getGuess()
 
 
 def simulate(x0, u):
-    x_sim = np.empty((conf.n_steps + 1, model.nx)) * np.nan
+    x_sim = np.empty((conf.N + 1, model.nx)) * np.nan
     x_sim[0, :3] = x0
     x_sim[0, 3:] = np.zeros(3)
 
     for k in range(conf.N):
-        x_sim[k + 1] = np.copy(simulator.simulate(x_sim[k], u[k]))
+        x_sim[k + 1] = simulator.simulate(x_sim[k], u[k])
     return x_sim
 
 
@@ -52,3 +53,5 @@ for j in range(test_num):
     x_roll = simulate(x0_vec[j], u_guess_vec[j])
     debugger.plotTrajectory(j, x0_vec[j], x_guess_vec[j], x_roll)
     # print('Test number: ', j, ', Diff norm ', np.linalg.norm(x_roll[:conf.N+1] - x_guess_vec[j]))
+
+print('Init guess success: ' + str(ocp.success) + ' over ' + str(conf.test_num))

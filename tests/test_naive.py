@@ -55,7 +55,7 @@ def simulate(p):
         if not model.checkStateConstraints(x_sim[j + 1]):
             break
 
-    debugger.plotTrajectory(p, x0_vec[p], x_guess_vec[p])
+    debugger.plotTrajectory(p, x0_vec[p], x_guess_vec[p], x_sim)
     return j, x_sim
 
 
