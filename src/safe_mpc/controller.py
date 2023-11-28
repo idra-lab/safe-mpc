@@ -6,8 +6,9 @@ class NaiveController(AbstractController):
     def __init__(self, simulator):
         super().__init__(simulator)
 
-    def checkGuess(self, x, u):
-        return self.model.checkRunningConstraints(x, u)
+    def checkGuess(self):
+        return self.model.checkRunningConstraints(self.x_temp, self.u_temp) and \
+               self.simulator.checkDynamicsConstraints(self.x_temp, self.u_temp)
 
     def initialize(self, x0):
         # Trivial guess
@@ -15,25 +16,16 @@ class NaiveController(AbstractController):
         self.u_guess = np.zeros((self.N, self.model.nu))
         # Solve the OCP
         status = self.solve(x0)
-        # self.ocp_solver.print_statistics()
-        # print('status = ', status)
-        if status == 0 or status == 2:
-            for i in range(self.N):
-                self.x_guess[i] = self.ocp_solver.get(i, "x")
-                self.u_guess[i] = self.ocp_solver.get(i, "u")
-            self.x_guess[self.N] = self.ocp_solver.get(self.N, "x")
-
-            if self.checkGuess(self.x_guess, self.u_guess): #and \
-               # self.simulator.checkDynamicsConstraints(self.x_guess, self.u_guess):
-                self.success += 1
-            else:
-                self.x_guess *= np.nan
-                self.u_guess *= np.nan
+        if status == 0 or status == 2:  # and self.checkGuess():
+            self.success += 1
+            self.x_guess = np.copy(self.x_temp)
+            self.u_guess = np.copy(self.u_temp)
+        return status
 
     def step(self, x):
         status = self.solve(x)
-        u = self.ocp_solver.get(0, "u")
-        if status == 0 and self.model.checkControlConstraints(u):
+        if status == 0 and self.model.checkControlConstraints(self.u_temp[0]) and \
+           self.simulator.checkDynamicsConstraints(self.x_temp[:2], np.array([self.u_temp[0]])):
             self.fails = 0
         else:
             if self.fails >= self.N:
@@ -53,7 +45,7 @@ class STController(NaiveController):
 class STWAController(STController):
     def __init__(self, simulator):
         super().__init__(simulator)
-        self.x_viable = None                # TODO: to be initialized
+        self.x_viable = None
 
     def step(self, x):
         status = self.solve(x)
@@ -68,6 +60,11 @@ class STWAController(STController):
             self.fails += 1
         return self.provideControl()
 
+    def setGuess(self, x_guess, u_guess):
+        self.x_guess = x_guess
+        self.u_guess = u_guess
+        self.x_viable = x_guess[-1]
+
 
 class HTWAController(STWAController):
     def __init__(self, simulator):
@@ -76,15 +73,10 @@ class HTWAController(STWAController):
     def additionalSetting(self):
         self.terminalConstraint(soft=False)
 
-    def checkGuess(self, x, u):
-        # Check also the terminal constraint
-        return self.model.checkRunningConstraints(x, u) and self.model.checkSafeConstraints(x[-1])
 
-
-class RecedingController(NaiveController):
+class RecedingController(STWAController):
     def __init__(self, simulator):
         super().__init__(simulator)
-        self.x_viable = None                # TODO: to be initialized
         self.r = self.N
 
     def additionalSetting(self):
@@ -94,13 +86,13 @@ class RecedingController(NaiveController):
 
     def step(self, x):
         # Terminal constraint
-        self.ocp.ocp_solver.cost_set(self.N, "Zl", 1e5 * np.ones((1,)))
+        self.ocp.ocp_solver.cost_set(self.N, "zl", self.params.ws_t * np.ones((1,)))
         # Receding constraint
-        self.ocp.ocp_solver.cost_set(self.r, "Zl", 1e8 * np.ones((1,)))
+        self.ocp.ocp_solver.cost_set(self.r, "zl", self.params.ws_r * np.ones((1,)))
         for i in range(1, self.N):
             if i != self.r:
                 # No constraints on other running states
-                self.ocp.ocp_solver.cost_set(i, "Zl", np.zeros((1,)))
+                self.ocp.ocp_solver.cost_set(i, "zl", np.zeros((1,)))
         # Solve the OCP
         status = self.solve(x)
 
