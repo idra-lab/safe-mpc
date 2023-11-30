@@ -1,0 +1,8 @@
+.idea/
+*.npz
+*.pkl
+*.json
+generated/*
+**/c_generated_code/
+**/__pycache__/
+*.png
