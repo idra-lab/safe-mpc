@@ -1,12 +1,12 @@
 import numpy as np
-from casadi import SX, dot
+from casadi import MX, dot
 from .abstract import AbstractController
 
 
 class SafeBackupController(AbstractController):
     def __init__(self, simulator):
         super().__init__(simulator)
-        self.Q = np.eye(self.model.nx)
+        self.Q = np.zeros((self.model.nx, self.model.nx))
         self.Q[self.model.nq:, self.model.nq:] = np.eye(self.model.nv) * 1e4
 
         q_fin_lb = np.hstack([self.model.x_min[:self.model.nq], np.zeros(3)])
@@ -24,7 +24,7 @@ class VbocLikeController(SafeBackupController):
 
     def additionalSetting(self):
         # Define the external cost for t = 0
-        p = SX.sym("p", self.model.nv)
+        p = MX.sym("p", self.model.nv)
         self.model.p = p
         self.ocp.cost.cost_type_0 = 'EXTERNAL'
         self.ocp.model.cost_expr_ext_cost_0 = dot(p, self.model.x[:self.model.nv])
