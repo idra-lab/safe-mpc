@@ -11,16 +11,18 @@ class NaiveController(AbstractController):
                self.simulator.checkDynamicsConstraints(self.x_temp, self.u_temp)
 
     def initialize(self, x0):
+        flag = 0
         # Trivial guess
         self.x_guess = np.full((self.N + 1, self.model.nx), x0)
         self.u_guess = np.zeros((self.N, self.model.nu))
         # Solve the OCP
         status = self.solve(x0)
-        if status == 0 or status == 2:  # and self.checkGuess():
+        if (status == 0 or status == 2) and self.checkGuess():
             self.success += 1
+            flag = 1
             self.x_guess = np.copy(self.x_temp)
             self.u_guess = np.copy(self.u_temp)
-        return status
+        return flag
 
     def step(self, x):
         status = self.solve(x)
@@ -47,6 +49,11 @@ class STWAController(STController):
         super().__init__(simulator)
         self.x_viable = None
 
+    def checkGuess(self):
+        return self.model.checkRunningConstraints(self.x_temp, self.u_temp) and \
+               self.simulator.checkDynamicsConstraints(self.x_temp, self.u_temp) and \
+               self.model.checkSafeConstraints(self.x_temp[-1])
+
     def step(self, x):
         status = self.solve(x)
         if status == 0 and self.model.checkRunningConstraints(self.x_temp, self.u_temp) and \
@@ -64,6 +71,9 @@ class STWAController(STController):
         self.x_guess = x_guess
         self.u_guess = u_guess
         self.x_viable = x_guess[-1]
+
+    def getLastViableState(self):
+        return np.copy(self.x_viable)
 
 
 class HTWAController(STWAController):
@@ -86,13 +96,13 @@ class RecedingController(STWAController):
 
     def step(self, x):
         # Terminal constraint
-        self.ocp.ocp_solver.cost_set(self.N, "zl", self.params.ws_t * np.ones((1,)))
+        self.ocp_solver.cost_set(self.N, "zl", self.params.ws_t * np.ones((1,)))
         # Receding constraint
-        self.ocp.ocp_solver.cost_set(self.r, "zl", self.params.ws_r * np.ones((1,)))
+        self.ocp_solver.cost_set(self.r, "zl", self.params.ws_r * np.ones((1,)))
         for i in range(1, self.N):
             if i != self.r:
                 # No constraints on other running states
-                self.ocp.ocp_solver.cost_set(i, "zl", np.zeros((1,)))
+                self.ocp_solver.cost_set(i, "zl", np.zeros((1,)))
         # Solve the OCP
         status = self.solve(x)
 
