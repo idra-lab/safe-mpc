@@ -65,16 +65,16 @@ class AbstractModel:
         pass
 
     def checkStateConstraints(self, x):
-        return np.all((x >= self.x_min) & (x <= self.x_max))
+        return np.all(np.logical_and(x >= self.x_min, x <= self.x_max))
 
     def checkControlConstraints(self, u):
-        return np.all((u >= self.u_min) & (u <= self.u_max))
+        return np.all(np.logical_and(u >= self.u_min, u <= self.u_max))
 
     def checkRunningConstraints(self, x, u):
         return self.checkStateConstraints(x) and self.checkControlConstraints(u)
 
     def checkSafeConstraints(self, x):
-        return True if self.nn_func(x, self.params.alpha) >= 0. else False
+        return self.nn_func(x, self.params.alpha) >= 0. 
 
     def setNNmodel(self):
         device = torch.device('cuda')
@@ -140,7 +140,7 @@ class SimDynamics:
         for i in range(n):
             x_sim[i + 1] = self.simulate(x_sim[i], u[i])
         # Check if the rollout state trajectory is almost equal to the optimal one
-        return True if np.linalg.norm(x - x_sim) < 1e-5 * np.sqrt(n+1) else False
+        return np.linalg.norm(x - x_sim) < 1e-5 * np.sqrt(n+1) 
 
 
 class AbstractController:
