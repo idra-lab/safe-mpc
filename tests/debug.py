@@ -23,9 +23,9 @@ class Debug:
         fig, ax = plt.subplots(3, 1, sharex='col')
         for i in range(3):
             if x_sim is not None:
-                t_sim = np.arange(0, np.shape(x_sim)[0] * self.conf.dt, self.conf.dt)
+                t_sim = np.linspace(0, self.conf.dt * self.conf.n_steps, self.conf.n_steps)
                 self.plotBounds(t_sim, ax[i])
-                ax[i].plot(t_sim, x_sim[:, i], label='q' + str(i + 1), color='darkblue',
+                ax[i].plot(t_sim, x_sim[:-1, i], label='q' + str(i + 1), color='darkblue',
                            linestyle='--', linewidth=2)
             else:
                 self.plotBounds(self.horizon, ax[i])

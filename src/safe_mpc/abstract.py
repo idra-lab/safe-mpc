@@ -2,7 +2,7 @@ import numpy as np
 import re
 from copy import deepcopy
 import scipy.linalg as lin
-from casadi import MX, vertcat, norm_2, Function
+from casadi import MX, vertcat, norm_2, fmax, Function
 from acados_template import AcadosModel, AcadosSim, AcadosSimSolver, AcadosOcp, AcadosOcpSolver
 import torch
 import torch.nn as nn
@@ -92,6 +92,7 @@ class AbstractModel:
 
         # i = 0
         # out = state
+        # weights = list(model.parameters())
         # for weight in weights:
         #     weight = MX(np.array(weight.tolist()))
         #     if i % 2 == 0:
@@ -199,9 +200,10 @@ class AbstractController:
 
         # Solver options
         self.ocp.solver_options.nlp_solver_type = self.params.solver_type
+        self.ocp.solver_options.hpipm_mode = self.params.solver_mode
         self.ocp.solver_options.nlp_solver_max_iter = self.params.nlp_max_iter
         self.ocp.solver_options.qp_solver_iter_max = self.params.qp_max_iter
-        self.ocp.solver_options.globalization = "MERIT_BACKTRACKING"
+        self.ocp.solver_options.globalization = self.params.globalization
         # self.ocp.solver_options.levenberg_marquardt = 1e2
 
         # Additional settings, in general is an empty method
@@ -253,7 +255,8 @@ class AbstractController:
         if soft:
             self.ocp.constraints.idxsh = np.array([0])
 
-            self.ocp.cost.zl = np.ones((1,)) * self.params.ws_r
+            # Set zl initially to zero, then apply receding constraint in the step method
+            self.ocp.cost.zl = np.zeros((1,))
             self.ocp.cost.zu = np.zeros((1,))
             self.ocp.cost.Zl = np.zeros((1,))
             self.ocp.cost.Zu = np.zeros((1,))
@@ -320,7 +323,10 @@ class AbstractController:
         self.x_ref = x_ref
 
     def getTime(self):
-        return np.copy(self.time)
+        fields = ['time_lin', 'time_sim', 'time_qp', 'time_qp_solver_call',
+                  'time_glob', 'time_reg', 'time_tot']
+        return np.array([self.ocp_solver.get_stats(field) for field in fields])
+        # return np.copy(self.time)
 
     def setGuess(self, x_guess, u_guess):
         self.x_guess = x_guess

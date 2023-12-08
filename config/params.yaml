@@ -1,4 +1,4 @@
-n_steps: 100
+n_steps: 200
 test_num: 100
 cpu_num: 20
 regenerate: true
@@ -27,8 +27,10 @@ controller:
   T: 0.175
   x_ref: [3.8769, 3.14, 3.14, 0, 0, 0]
   solver_type: 'SQP'  # 'SQP_RTI'
+  solver_mode: 'BALANCE'  # 'BALANCE', 'ROBUST', 'SPEED', 'SPEED_ABS'
   nlp_max_iter: 100
   qp_max_iter: 100
+  globalization: 'MERIT_BACKTRACKING'  # 'FIXED_STEP', 'MERIT_BACKTRACKING'
   safety_margin: 2
   ws_t: 1e4
   ws_r: 1e4
