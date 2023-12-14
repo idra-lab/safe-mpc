@@ -3,8 +3,9 @@
 *.pkl
 *.json
 *.png
-generated/*
-data/*
 .idea/
+data/*
+generated/*
+nn_models/*
 **/c_generated_code/
 **/__pycache__/
