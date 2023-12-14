@@ -2,7 +2,7 @@ import numpy as np
 import re
 from copy import deepcopy
 import scipy.linalg as lin
-from casadi import MX, vertcat, norm_2, fmax, Function
+from casadi import MX, vertcat, norm_2, Function
 from acados_template import AcadosModel, AcadosSim, AcadosSimSolver, AcadosOcp, AcadosOcpSolver
 import torch
 import torch.nn as nn
@@ -38,10 +38,10 @@ class AbstractModel:
         self.f_expl = self.u
         self.p = MX.sym("p")
         self.addDynamicsModel(params)
-        self.amodel.f_expl_expr = self.f_expl
         self.amodel.x = self.x
         self.amodel.xdot = self.x_dot
         self.amodel.u = self.u
+        self.amodel.f_expl_expr = self.f_expl
         self.amodel.p = self.p
 
         self.nx = self.amodel.x.size()[0]
@@ -79,9 +79,9 @@ class AbstractModel:
     def setNNmodel(self):
         device = torch.device('cuda')
         model = NeuralNetDIR(self.nx, (self.nx - 1) * 100, 1).to(device)
-        model.load_state_dict(torch.load(self.params.NN_DIR + 'model_3dof_vboc', map_location=device))
-        mean = torch.load(self.params.NN_DIR + 'mean_3dof_vboc')
-        std = torch.load(self.params.NN_DIR + 'std_3dof_vboc')
+        model.load_state_dict(torch.load(self.params.NN_DIR + 'model', map_location=device))
+        mean = torch.load(self.params.NN_DIR + 'mean')
+        std = torch.load(self.params.NN_DIR + 'std')
 
         x_cp = deepcopy(self.x)
         x_cp[self.nq] += 1e-6
@@ -89,20 +89,6 @@ class AbstractModel:
         pos = (x_cp[:self.nq] - mean) / std
         vel_dir = x_cp[self.nq:] / vel_norm
         state = vertcat(pos, vel_dir)
-
-        # i = 0
-        # out = state
-        # weights = list(model.parameters())
-        # for weight in weights:
-        #     weight = MX(np.array(weight.tolist()))
-        #     if i % 2 == 0:
-        #         out = weight @ out
-        #     else:
-        #         out = weight + out
-        #         if i == 1 or i == 3:
-        #             out = fmax(0., out)
-        #     i += 1
-        # self.nn_model = out * (100 - self.p) / 100 - vel_norm
 
         self.l4c_model = l4c.L4CasADi(model,
                                       device='cuda',
@@ -119,7 +105,8 @@ class SimDynamics:
         sim = AcadosSim()
         sim.model = model.amodel
         sim.solver_options.T = self.params.dt_s
-        sim.solver_options.num_stages = self.params.integrator_type
+        sim.solver_options.integrator_type = self.params.integrator_type
+        sim.solver_options.num_stages = self.params.num_stages
         sim.parameter_values = np.array([0.])
         gen_name = self.params.GEN_DIR + '/sim_' + sim.model.name
         sim.code_export_directory = gen_name
@@ -214,9 +201,7 @@ class AbstractController:
         self.ocp_solver = AcadosOcpSolver(self.ocp, json_file=gen_name + '.json', build=self.params.regenerate)
 
         # Initialize guess
-        self.success = 0
         self.fails = 0
-        self.time = 0
         self.x_ref = np.zeros(self.model.nx)
 
         # Empty initial guess and temp vectors
@@ -285,7 +270,6 @@ class AbstractController:
 
         # Solve the OCP
         status = self.ocp_solver.solve()
-        self.time = self.ocp_solver.get_stats('time_tot')
 
         # Save the temporary solution, independently of the status
         for i in range(self.N):
@@ -326,7 +310,6 @@ class AbstractController:
         fields = ['time_lin', 'time_sim', 'time_qp', 'time_qp_solver_call',
                   'time_glob', 'time_reg', 'time_tot']
         return np.array([self.ocp_solver.get_stats(field) for field in fields])
-        # return np.copy(self.time)
 
     def setGuess(self, x_guess, u_guess):
         self.x_guess = x_guess
