@@ -8,7 +8,7 @@ from safe_mpc.abstract import SimDynamics
 from safe_mpc.controller import NaiveController, STController
 from debug import Debug
 
-conf = Parameters('../config/params.yaml')
+conf = Parameters('triple_pendulum', 'st', rti=False)
 model = TriplePendulumModel(conf)
 simulator = SimDynamics(model)
 ocp = STController(simulator)
@@ -20,7 +20,7 @@ eps = 1e-5
 l_bounds = model.x_min[:model.nq] + eps
 u_bounds = model.x_max[:model.nq] - eps
 # x0_vec = qmc.scale(sample, l_bounds, u_bounds)
-x0_vec = np.load(conf.DATA_DIR + '/initial_conditions/x_init.npy')[:conf.test_num]
+x0_vec = np.load(conf.DATA_DIR + '/x_init.npy')[:conf.test_num]
 
 x_ref = np.array([conf.q_max - 0.05, np.pi, np.pi, 0, 0, 0])
 ocp.setReference(x_ref)
@@ -30,8 +30,8 @@ def init_guess(p):
     x0 = np.zeros((model.nx,))
     x0[:model.nq] = x0_vec[p]
 
-    ocp.initialize(x0)
-    return ocp.getGuess()
+    flag = ocp.initialize(x0)
+    return flag, ocp.getGuess()
 
 
 def simulate(p):
@@ -64,12 +64,14 @@ def simulate(p):
 
 
 x_guess_vec, u_guess_vec = [], []
+success = 0
 for i in range(conf.test_num):
-    xg, ug = init_guess(i)
-    x_guess_vec.append(xg)
-    u_guess_vec.append(ug)
+    flag ,guess = init_guess(i)
+    x_guess_vec.append(guess[0])
+    u_guess_vec.append(guess[1])
+    success += flag
 
-print('Init guess success: ' + str(ocp.success) + ' over ' + str(conf.test_num))
+print('Init guess success: ' + str(success) + ' over ' + str(conf.test_num))
 
 del ocp
 conf.solver_type = 'SQP_RTI'

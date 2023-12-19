@@ -6,7 +6,7 @@ from safe_mpc.abstract import SimDynamics
 from safe_mpc.controller import RecedingController
 
 
-conf = Parameters('../config/params.yaml')
+conf = Parameters('triple_pendulum', 'receding', rti=False)
 conf.test_num = 500
 model = TriplePendulumModel(conf)
 simulator = SimDynamics(model)
@@ -37,16 +37,18 @@ def init_guess(p):
     return flag, ocp.getGuess()
 
 
+success = 0
 flags, x_guess_vec, u_guess_vec = [], [], []
 for i in range(conf.test_num):
     flag, (xg, ug) = init_guess(i)
     x_guess_vec.append(xg)
     u_guess_vec.append(ug)
     flags.append(flag)
+    success += flag
 
 idx = np.where(np.asarray(flags) == 1)[0]
 
-print('Init guess success: ' + str(ocp.success) + ' over ' + str(conf.test_num))
-# np.save(conf.DATA_DIR + '/initial_conditions/x_init.npy', np.asarray(x0_vec)[idx])
+print('Init guess success: ' + str(success) + ' over ' + str(conf.test_num))
+np.save(conf.DATA_DIR + '/x_init.npy', np.asarray(x0_vec)[idx])
 # np.save(conf.DATA_DIR + '/initial_conditions/x_guess_vec.npy', np.asarray(x_guess_vec)[idx])
 # np.save(conf.DATA_DIR + '/initial_conditions/u_guess_vec.npy', np.asarray(u_guess_vec)[idx])
