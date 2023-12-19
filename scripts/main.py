@@ -72,7 +72,6 @@ def simulate_mpc(p):
 
 if __name__ == '__main__':
     args = parse_args()
-    print(args)
     # Define the available systems and controllers
     available_systems = {'double_pendulum': 'DoublePendulumModel',
                          'triple_pendulum': 'TriplePendulumModel'}
