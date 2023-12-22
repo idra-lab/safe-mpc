@@ -19,7 +19,8 @@ model.setNNmodel()
 simulator = SimDynamics(model)
 ocp = SafeBackupController(simulator)
 
-x_viable = np.load(conf.DATA_DIR + '/viable/x_viable.npy')
+controller_name = 'receding'        # 'stwa', 'htwa', 'receding'
+x_viable = np.load(conf.DATA_DIR + '/' + controller_name + '/x_viable.npy')
 nn_out = evaluate_nn(x_viable)
 print(nn_out)
 
@@ -34,5 +35,6 @@ for i in range(n):
         t_comp.append(ocp.ocp_solver.get_stats('time_tot')[0])
         success[i] = 1
 
+print('Controller: ' + controller_name)
 print('Abort: ' + str(np.sum(success)) + ' over ' + str(n))
 print('99% quantile time: ', np.quantile(np.asarray(t_comp), 0.99))

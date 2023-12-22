@@ -10,11 +10,13 @@ class NaiveController(AbstractController):
         return self.model.checkRunningConstraints(self.x_temp, self.u_temp) and \
                self.simulator.checkDynamicsConstraints(self.x_temp, self.u_temp)
 
-    def initialize(self, x0):
+    def initialize(self, x0, u0=None):
         flag = 0
         # Trivial guess
         self.x_guess = np.full((self.N + 1, self.model.nx), x0)
-        self.u_guess = np.zeros((self.N, self.model.nu))
+        if u0 is None:
+            u0 = np.zeros(self.model.nu)
+        self.u_guess = np.full((self.N, self.model.nu), u0)
         # Solve the OCP
         status = self.solve(x0)
         if (status == 0 or status == 2) and self.checkGuess():

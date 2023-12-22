@@ -10,11 +10,11 @@ conf.solver_type = 'SQP_RTI'
 conf.globalization = 'FIXED_STEP'
 model = TriplePendulumModel(conf)
 simulator = SimDynamics(model)
-controller = HTWAController(simulator)
+controller = RecedingController(simulator)
 debugger = Debug(conf, controller)
 tol = 1e-3
 
-x0_vec = np.load(conf.DATA_DIR + '/initial_conditions/x_init.npy')[:conf.test_num]
+x0_vec = np.load(conf.DATA_DIR + 'x_init.npy')[:conf.test_num]
 x_ref = np.array([conf.q_max - 0.05, np.pi, np.pi, 0, 0, 0])
 controller.setReference(x_ref)
 
@@ -49,8 +49,8 @@ def simulate(p):
     return j, convergence, x_sim, x_v, stats
 
 
-x_guess_vec = np.load(conf.DATA_DIR + '/initial_conditions/x_guess_vec.npy')[:conf.test_num]
-u_guess_vec = np.load(conf.DATA_DIR + '/initial_conditions/u_guess_vec.npy')[:conf.test_num]
+x_guess_vec = np.load(conf.DATA_DIR + 'x_guess_vec.npy')[:conf.test_num]
+u_guess_vec = np.load(conf.DATA_DIR + 'u_guess_vec.npy')[:conf.test_num]
 
 res = []
 for i in range(conf.test_num):
@@ -74,4 +74,4 @@ print('99% quantile computation time:')
 for field, t in zip(fields, np.quantile(times, 0.99, axis=0)):
     print(f"{field:<20} -> {t[0]}")
 
-# np.save(conf.DATA_DIR + '/viable/x_viable.npy', np.asarray(x_viable)[idx_abort])
+np.save(conf.DATA_DIR + '/' + controller.ocp_name + '/x_viable.npy', np.asarray(x_viable)[idx_abort])

@@ -20,7 +20,7 @@ eps = 1e-5
 l_bounds = model.x_min[:model.nq] + eps
 u_bounds = model.x_max[:model.nq] - eps
 # x0_vec = qmc.scale(sample, l_bounds, u_bounds)
-x0_vec = np.load(conf.DATA_DIR + '/initial_conditions/x_init.npy')[:conf.test_num]
+x0_vec = np.load(conf.DATA_DIR + 'x_init.npy')[:conf.test_num]
 
 x_ref = np.array([conf.q_max - 0.05, np.pi, np.pi, 0, 0, 0])
 ocp.setReference(x_ref)

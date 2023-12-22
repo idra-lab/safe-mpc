@@ -10,7 +10,7 @@ class Parameters:
         self.ROOT_DIR = self.PKG_DIR.split('/src/safe_mpc')[0]
         self.DATA_DIR = os.path.join(self.ROOT_DIR, 'data/')
         self.GEN_DIR = os.path.join(self.ROOT_DIR, 'generated/')
-        self.NN_DIR = os.path.join(self.DATA_DIR, 'relu_3dof/')
+        self.NN_DIR = os.path.join(self.ROOT_DIR, 'nn_models/triple_pendulum/')
 
         # Load the parameters from the yaml file
         data = yaml.load(open(filename, 'r'), Loader=yaml.FullLoader)
