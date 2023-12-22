@@ -4,6 +4,7 @@
 *.json
 *.png
 generated/*
+nn_models/*
 data/*
 .idea/
 **/c_generated_code/
