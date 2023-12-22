@@ -2,7 +2,7 @@ import numpy as np
 import re
 from copy import deepcopy
 import scipy.linalg as lin
-from casadi import MX, vertcat, norm_2, fmax, Function
+from casadi import MX, vertcat, norm_2, fmax, Function, Opti, integrator
 from acados_template import AcadosModel, AcadosSim, AcadosSimSolver, AcadosOcp, AcadosOcpSolver
 import torch
 import torch.nn as nn
@@ -79,9 +79,9 @@ class AbstractModel:
     def setNNmodel(self):
         device = torch.device('cuda')
         model = NeuralNetDIR(self.nx, (self.nx - 1) * 100, 1).to(device)
-        model.load_state_dict(torch.load(self.params.NN_DIR + 'model_3dof_vboc', map_location=device))
-        mean = torch.load(self.params.NN_DIR + 'mean_3dof_vboc')
-        std = torch.load(self.params.NN_DIR + 'std_3dof_vboc')
+        model.load_state_dict(torch.load(self.params.NN_DIR + 'model', map_location=device))
+        mean = torch.load(self.params.NN_DIR + 'mean')
+        std = torch.load(self.params.NN_DIR + 'std')
 
         x_cp = deepcopy(self.x)
         x_cp[self.nq] += 1e-6
@@ -332,5 +332,73 @@ class AbstractController:
         self.x_guess = x_guess
         self.u_guess = u_guess
 
+    def getGuess(self):
+        return np.copy(self.x_guess), np.copy(self.u_guess)
+
+
+class IpoptController:
+    def __init__(self, params, model, x_ref):
+        self.params = params
+        self.model = model
+        self.N = params.N
+        self.x = model.x 
+        self.u = model.u
+        self.x_ref = x_ref
+
+        self.x_guess = np.zeros((self.N + 1, model.nx))
+        self.u_guess = np.zeros((self.N, model.nu))
+
+        # Define the integrator
+        self.f_expl = integrator('f_expl', 'cvodes', {'x': self.x, 'p': self.u, 'ode': model.f_expl},
+                                 0, self.params.dt)
+
+        # QR regularization
+        self.Q = 1e-4 * np.eye(self.model.nx)
+        self.Q[0, 0] = 5e2
+        self.R = 1e-4 * np.eye(self.model.nu)
+
+        # Define the OCP 
+        self.opti = Opti()
+        self.xs = self.opti.variable(self.model.nx, self.N + 1)
+        self.us = self.opti.variable(self.model.nu, self.N)
+
+        self.cost = Function('cost', [self.x, self.u], [self.runningCost(self.x, self.u)])
+
+        total_cost = 0
+        for i in range(self.N):
+            total_cost += self.cost(self.xs[:, i], self.us[:, i])
+            self.opti.subject_to(self.xs[:, i + 1] == self.f_expl(x0=self.xs[:, i], p=self.us[:, i])['xf'])
+            self.opti.subject_to(self.opti.bounded(self.model.x_min, self.xs[:, i], self.model.x_max))
+            self.opti.subject_to(self.opti.bounded(self.model.u_min, self.us[:, i], self.model.u_max))
+        t_cost = self.cost(self.xs[:, -1], np.zeros(self.model.nu))
+        total_cost += t_cost
+        self.opti.subject_to(self.opti.bounded(self.model.x_min, self.xs[:, -1], self.model.x_max))
+
+        self.opti.minimize(total_cost)
+
+        opts = {'ipopt.print_level': 0, 'print_time': 0, 'ipopt.sb': 'yes', 'ipopt.linear_solver': 'ma57'}
+        self.opti.solver('ipopt', opts)
+
+    def solve(self, x0):
+
+        for i in range(self.N):
+            self.opti.set_initial(self.xs[:, i], x0)
+            self.opti.set_initial(self.us[:, i], np.zeros(self.model.nu))
+        self.opti.set_initial(self.xs[:, -1], x0)
+
+        try:
+            sol = self.opti.solve()
+            self.x_guess = np.copy(sol.value(self.xs))
+            self.u_guess = np.copy(sol.value(self.us))
+            return 1
+        except:
+            return 0
+
+    def setReference(self, x_ref):
+        self.x_ref = x_ref
+
+    def runningCost(self, x, u):
+        return (x - self.x_ref).T @ self.Q @ (x - self.x_ref) + u.T @ self.R @ u
+    
     def getGuess(self):
         return np.copy(self.x_guess), np.copy(self.u_guess)
