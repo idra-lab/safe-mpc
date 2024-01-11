@@ -38,10 +38,10 @@ class AbstractModel:
         self.f_expl = self.u
         self.p = MX.sym("p")
         self.addDynamicsModel(params)
-        self.amodel.f_expl_expr = self.f_expl
         self.amodel.x = self.x
         self.amodel.xdot = self.x_dot
         self.amodel.u = self.u
+        self.amodel.f_expl_expr = self.f_expl
         self.amodel.p = self.p
 
         self.nx = self.amodel.x.size()[0]
@@ -119,7 +119,8 @@ class SimDynamics:
         sim = AcadosSim()
         sim.model = model.amodel
         sim.solver_options.T = self.params.dt_s
-        sim.solver_options.num_stages = self.params.integrator_type
+        sim.solver_options.integrator_type = self.params.integrator_type
+        sim.solver_options.num_stages = self.params.num_stages
         sim.parameter_values = np.array([0.])
         gen_name = self.params.GEN_DIR + '/sim_' + sim.model.name
         sim.code_export_directory = gen_name
@@ -214,9 +215,7 @@ class AbstractController:
         self.ocp_solver = AcadosOcpSolver(self.ocp, json_file=gen_name + '.json', build=self.params.regenerate)
 
         # Initialize guess
-        self.success = 0
         self.fails = 0
-        self.time = 0
         self.x_ref = np.zeros(self.model.nx)
 
         # Empty initial guess and temp vectors
@@ -285,7 +284,6 @@ class AbstractController:
 
         # Solve the OCP
         status = self.ocp_solver.solve()
-        self.time = self.ocp_solver.get_stats('time_tot')
 
         # Save the temporary solution, independently of the status
         for i in range(self.N):
@@ -326,7 +324,6 @@ class AbstractController:
         fields = ['time_lin', 'time_sim', 'time_qp', 'time_qp_solver_call',
                   'time_glob', 'time_reg', 'time_tot']
         return np.array([self.ocp_solver.get_stats(field) for field in fields])
-        # return np.copy(self.time)
 
     def setGuess(self, x_guess, u_guess):
         self.x_guess = x_guess
@@ -341,7 +338,7 @@ class IpoptController:
         self.params = params
         self.model = model
         self.N = params.N
-        self.x = model.x 
+        self.x = model.x
         self.u = model.u
         self.x_ref = x_ref
 
@@ -357,7 +354,7 @@ class IpoptController:
         self.Q[0, 0] = 5e2
         self.R = 1e-4 * np.eye(self.model.nu)
 
-        # Define the OCP 
+        # Define the OCP
         self.opti = Opti()
         self.xs = self.opti.variable(self.model.nx, self.N + 1)
         self.us = self.opti.variable(self.model.nu, self.N)
@@ -402,6 +399,6 @@ class IpoptController:
 
     def runningCost(self, x, u):
         return (x - self.x_ref).T @ self.Q @ (x - self.x_ref) + u.T @ self.R @ u
-    
+
     def getGuess(self):
         return np.copy(self.x_guess), np.copy(self.u_guess)

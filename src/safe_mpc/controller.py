@@ -20,11 +20,10 @@ class NaiveController(AbstractController):
         # Solve the OCP
         status = self.solve(x0)
         if (status == 0 or status == 2) and self.checkGuess():
-            self.success += 1
-            flag = 1
             self.x_guess = np.copy(self.x_temp)
             self.u_guess = np.copy(self.u_temp)
-        return flag
+            return 1
+        return 0
 
     def step(self, x):
         status = self.solve(x)

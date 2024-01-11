@@ -1,0 +1,19 @@
+# Link lengths
+l1: 0.8
+l2: 0.8
+l3: 0.8
+# Gravity acceleration
+g: 9.81
+# Masses of the links
+m1: 0.4
+m2: 0.4
+m3: 0.4
+# Joint position bounds (defined as fraction of pi)
+q_min: -0.25
+q_max: 0.25
+# Joint velocity bounds
+dq_min: -10
+dq_max: 10
+# Joint torque bounds
+u_min: -10
+u_max: 10

@@ -1,0 +1,3 @@
+dt: 5e-3                    # Time step
+integrator_type: 'ERK'      # Explicit Runge-Kutta
+num_stages: 4               # RK4
