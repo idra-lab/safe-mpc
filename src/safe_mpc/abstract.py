@@ -337,7 +337,7 @@ class AbstractController:
 
 
 class IpoptController:
-    def __init__(self, params, model, x_ref):
+    def __init__(self, params, model, x_ref, terminal=False):
         self.params = params
         self.model = model
         self.N = params.N
@@ -373,6 +373,9 @@ class IpoptController:
         t_cost = self.cost(self.xs[:, -1], np.zeros(self.model.nu))
         total_cost += t_cost
         self.opti.subject_to(self.opti.bounded(self.model.x_min, self.xs[:, -1], self.model.x_max))
+
+        if terminal:
+            self.opti.subject_to(self.model.nn_func(self.xs[:, -1], params.alpha) >= 0.)
 
         self.opti.minimize(total_cost)
 
