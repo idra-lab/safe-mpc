@@ -4,12 +4,12 @@ cpu_num: 20
 regenerate: true
 
 model:
-  l1: 0.8
-  l2: 0.8
+  l1: 0.8         # 0.1
+  l2: 0.8         # 0.1
   l3: 0.8
   g: 9.81
-  m1: 0.4
-  m2: 0.4
+  m1: 0.4         # 0.2
+  m2: 0.4         # 0.3
   m3: 0.4
   q_min: -0.25      # defined as fraction of pi
   q_max: 0.25
