@@ -2,7 +2,7 @@ import numpy as np
 import re
 from copy import deepcopy
 import scipy.linalg as lin
-from casadi import MX, vertcat, norm_2, fmax, Function, Opti, integrator
+from casadi import MX, vertcat, norm_2, Function, Opti, integrator
 from acados_template import AcadosModel, AcadosSim, AcadosSimSolver, AcadosOcp, AcadosOcpSolver
 import torch
 import torch.nn as nn
@@ -151,12 +151,12 @@ class AbstractController:
         self.params = simulator.params
         self.model = simulator.model
 
-        self.N = self.params.N
+        self.N = int(self.params.T / self.params.dt)
         self.ocp = AcadosOcp()
 
         # Dimensions
         self.ocp.solver_options.tf = self.params.T
-        self.ocp.dims.N = self.params.N
+        self.ocp.dims.N = self.N
 
         # Model
         self.ocp.model = self.model.amodel
@@ -222,6 +222,13 @@ class AbstractController:
         self.x_guess = np.zeros((self.N + 1, self.model.nx))
         self.u_guess = np.zeros((self.N, self.model.nu))
         self.x_temp, self.u_temp = np.copy(self.x_guess), np.copy(self.u_guess)
+
+        # Viable state (None for Naive and ST controllers)
+        self.x_viable = None
+
+        # Time stats
+        self.time_fields = ['time_lin', 'time_sim', 'time_qp', 'time_qp_solver_call',
+                            'time_glob', 'time_reg', 'time_tot']
 
     def additionalSetting(self):
         pass
@@ -321,9 +328,7 @@ class AbstractController:
         self.x_ref = x_ref
 
     def getTime(self):
-        fields = ['time_lin', 'time_sim', 'time_qp', 'time_qp_solver_call',
-                  'time_glob', 'time_reg', 'time_tot']
-        return np.array([self.ocp_solver.get_stats(field) for field in fields])
+        return np.array([self.ocp_solver.get_stats(field) for field in self.time_fields])
 
     def setGuess(self, x_guess, u_guess):
         self.x_guess = x_guess
@@ -331,6 +336,9 @@ class AbstractController:
 
     def getGuess(self):
         return np.copy(self.x_guess), np.copy(self.u_guess)
+
+    def getLastViableState(self):
+        return np.copy(self.x_viable)
 
 
 class IpoptController:
@@ -391,7 +399,7 @@ class IpoptController:
             self.x_guess = np.copy(sol.value(self.xs))
             self.u_guess = np.copy(sol.value(self.us))
             return 1
-        except:
+        except RuntimeError:
             return 0
 
     def setReference(self, x_ref):
