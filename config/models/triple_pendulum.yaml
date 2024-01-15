@@ -17,3 +17,5 @@ dq_max: 10
 # Joint torque bounds
 u_min: -10
 u_max: 10
+# State selection tolerance
+state_tol: 1e-5
