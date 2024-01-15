@@ -9,7 +9,7 @@ from safe_mpc.gravity_compensation import GravityCompensation
 from safe_mpc.abstract import SimDynamics
 
 
-conf = Parameters('../config/params.yaml')
+conf = Parameters('double_pendulum', 'naive')
 dt = conf.dt_s
 
 model_name = sys.argv[1] if len(sys.argv) > 1 else 'triple'
@@ -17,11 +17,12 @@ if model_name == 'double':
     model = DoublePendulumModel(conf)
     x0 = np.array([np.pi + 0.2, np.pi - 0.3, 0., 0.])
     robot = example_robot_data.load('double_pendulum_simple')
-    rmodel = robot.model
-    rdata = rmodel.createData()
 else:
     model = TriplePendulumModel(conf)
     x0 = np.array([np.pi + 0.2, np.pi - 0.3, np.pi + 0.1, 0., 0., 0.])
+    robot = example_robot_data.load('triple_pendulum_simple')    # NOT EXISTING
+rmodel = robot.model
+rdata = rmodel.createData()
 simulator = SimDynamics(model) 
 gc = GravityCompensation(conf, model)
 
@@ -35,7 +36,7 @@ v[0, :] = x0[model.nq:]
 
 # Control = gravity compensation + constant
 u0 = gc.solve(x0)
-u = u0 #+ 0.01
+u = u0
 
 for i in range(n_step):
     # Acados dynamics simulation
@@ -45,12 +46,12 @@ for i in range(n_step):
     pin.computeAllTerms(rmodel, rdata, q[i], v[i])
     a = pin.aba(rmodel, rdata, q[i], v[i], u)
     v[i+1] = v[i] + dt * a
-    q[i+1] = pin.integrate(rmodel, q[i], dt * v[i+1])   #q[i] + v[i] * dt + dt**2 / 2 * a
+    q[i+1] = pin.integrate(rmodel, q[i], dt * v[i+1])
 
 fig, ax = plt.subplots(model.nq, 1, sharex='col')
 for i in range(model.nq):
     ax[i].plot(x_sim[:, i], label='sim')
-    ax[i].plot(q[:,i], label='pin', color='r', linestyle='dashed')
+    ax[i].plot(q[:, i], label='pin', color='r', linestyle='dashed')
     ax[i].legend()
     ax[i].set_ylabel('q' + str(i + 1) + ' (rad)')
     ax[i].grid()

@@ -21,15 +21,16 @@ class GravityCompensation:
         sol = self.opti.solve()
         return sol.value(self.u)
 
-if __name__=="__main__":
+
+if __name__ == "__main__":
     from safe_mpc.parser import Parameters 
     from safe_mpc.model import TriplePendulumModel
     from safe_mpc.abstract import SimDynamics
 
-    conf = Parameters('../../config/params.yaml')
-    model = TriplePendulumModel(conf)
-    simulator = SimDynamics(model)
-    gc = GravityCompensation(conf, model)
+    params = Parameters('triple_pendulum', 'naive')
+    system = TriplePendulumModel(params)
+    simulator = SimDynamics(system)
+    gc = GravityCompensation(params, system)
 
     x0 = np.array([3.5, -2.7, 3.6, 0, 0, 0])
     u_static = gc.solve(x0)
@@ -37,7 +38,7 @@ if __name__=="__main__":
 
     # Simulate the system 
     n_step = 100
-    x_sim = np.empty((n_step + 1, model.nx)) * np.nan
+    x_sim = np.empty((n_step + 1, system.nx)) * np.nan
     x_sim[0] = x0
     for i in range(n_step):
         x_sim[i + 1] = simulator.simulate(x_sim[i], u_static) 

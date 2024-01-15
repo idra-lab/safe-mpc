@@ -6,7 +6,7 @@ from safe_mpc.abstract import SimDynamics, IpoptController
 from safe_mpc.gravity_compensation import GravityCompensation
 
 
-conf = Parameters('../config/params.yaml')
+conf = Parameters('triple_pendulum', 'naive')
 conf.test_num = 50
 model = TriplePendulumModel(conf)
 simulator = SimDynamics(model)
@@ -23,10 +23,11 @@ x0_vec = qmc.scale(sample, l_bounds, u_bounds)
 
 x_ref = np.array([conf.q_max - 0.05, np.pi, np.pi, 0, 0, 0])
 
+
 def init_guess(p):
     x0 = np.zeros((model.nx,))
     x0[:model.nq] = x0_vec[p]
-    u0 = gravity.solve(x0)
+    # u0 = gravity.solve(x0)
 
     ocp = IpoptController(conf, model, x_ref)
 
