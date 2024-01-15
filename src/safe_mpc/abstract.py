@@ -79,9 +79,9 @@ class AbstractModel:
     def setNNmodel(self):
         device = torch.device('cuda')
         model = NeuralNetDIR(self.nx, (self.nx - 1) * 100, 1).to(device)
-        model.load_state_dict(torch.load(self.params.NN_DIR + 'model', map_location=device))
-        mean = torch.load(self.params.NN_DIR + 'mean')
-        std = torch.load(self.params.NN_DIR + 'std')
+        model.load_state_dict(torch.load(self.params.NN_DIR + 'model.zip', map_location=device))
+        mean = torch.load(self.params.NN_DIR + 'mean.zip')
+        std = torch.load(self.params.NN_DIR + 'std.zip')
 
         x_cp = deepcopy(self.x)
         x_cp[self.nq] += 1e-6
