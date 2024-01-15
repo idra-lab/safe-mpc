@@ -1,6 +1,31 @@
 import os
 import yaml
 import numpy as np
+import argparse
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-s', '--system', type=str, default='triple_pendulum',
+                        help='Systems to test. Available: double_pendulum, triple_pendulum')
+    parser.add_argument('-c', '--controller', type=str, default='naive',
+                        help='Controllers to test. Available: naive, st, stwa, htwa, receding')
+    parser.add_argument('-i', '--init-conditions', action='store_true',
+                        help='Find the initial conditions for testing all the controller')
+    parser.add_argument('-g', '--guess', action='store_true',
+                        help='Compute the initial guess of a given controller')
+    parser.add_argument('--rti', action='store_true',
+                        help='Use SQP-RTI for the MPC solver')
+    parser.add_argument('--alpha', type=int, default=2,
+                        help='Safety margin for the NN model')
+    parser.add_argument('-a', '--abort', type=str, default=None,
+                        help='Define the MPC formulation for which the abort controller is tested. '
+                             'Available: stwa, htwa and receding')
+    parser.add_argument('--repetition', type=int, default=5,
+                        help='Number of repetitions for the abort controller')
+    parser.add_argument('--plot', action='store_true',
+                        help='Plot the results')
+    return vars(parser.parse_args())
 
 
 class Parameters:
@@ -28,6 +53,7 @@ class Parameters:
         self.dq_max = float(model['dq_max'])
         self.u_min = float(model['u_min'])
         self.u_max = float(model['u_max'])
+        self.state_tol = float(model['state_tol'])
 
         simulator = yaml.load(open(self.CONF_DIR + 'simulator.yaml'), Loader=yaml.FullLoader)
         self.dt_s = float(simulator['dt'])
@@ -45,17 +71,16 @@ class Parameters:
         self.solver_type = 'SQP_RTI' if rti else 'SQP'
         self.solver_mode = controller['solver_mode']
         self.alpha = int(controller['alpha'])
+        self.conv_tol = float(controller['conv_tol'])
         self.globalization = 'FIXED_STEP' if rti else 'MERIT_BACKTRACKING'
 
         self.dt = float(controller[cont_type]['dt'])
         self.T = float(controller[cont_type]['T'])
-        self.N = int(self.T / self.dt)
 
-        if cont_type != 'naive':
+        if cont_type not in ['naive', 'abort']:
             self.ws_t = float(controller[cont_type]['ws_t'])
             if cont_type == 'receding':
                 self.ws_r = float(controller[cont_type]['ws_r'])
 
-        self.Q = np.eye(6) * 1e-4
-        self.R = np.eye(3) * 1e-4
-        self.Q[0, 0] = 500
+        if cont_type == 'abort':
+            self.q_dot_gain = float(controller[cont_type]['q_dot_gain'])
