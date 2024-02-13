@@ -84,7 +84,7 @@ class AbstractModel:
         std = torch.load(self.params.NN_DIR + 'std.zip')
 
         x_cp = deepcopy(self.x)
-        x_cp[self.nq] += 1e-6
+        x_cp[self.nq] += self.params.eps
         vel_norm = norm_2(x_cp[self.nq:])
         pos = (x_cp[:self.nq] - mean) / std
         vel_dir = x_cp[self.nq:] / vel_norm
@@ -141,7 +141,7 @@ class SimDynamics:
         for i in range(n):
             x_sim[i + 1] = self.simulate(x_sim[i], u[i])
         # Check if the rollout state trajectory is almost equal to the optimal one
-        return np.linalg.norm(x - x_sim) < 1e-5 * np.sqrt(n+1) 
+        return np.linalg.norm(x - x_sim) < self.params.state_tol * np.sqrt(n+1) 
 
 
 class AbstractController:

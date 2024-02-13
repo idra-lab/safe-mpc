@@ -54,6 +54,7 @@ class Parameters:
         self.u_min = float(model['u_min'])
         self.u_max = float(model['u_max'])
         self.state_tol = float(model['state_tol'])
+        self.eps = float(model['eps'])
 
         simulator = yaml.load(open(self.CONF_DIR + 'simulator.yaml'), Loader=yaml.FullLoader)
         self.dt_s = float(simulator['dt'])

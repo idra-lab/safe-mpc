@@ -19,3 +19,4 @@ u_min: -10
 u_max: 10
 # State selection tolerance
 state_tol: 1e-5
+eps: 1e-6
