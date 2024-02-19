@@ -2,6 +2,7 @@ import os
 import shutil
 import pickle
 import numpy as np
+from tqdm import tqdm
 import safe_mpc.model as models
 import safe_mpc.controller as controllers
 from safe_mpc.parser import Parameters, parse_args
@@ -12,24 +13,15 @@ from safe_mpc.gravity_compensation import GravityCompensation
 def convergenceCriteria(x, mask=None):
     if mask is None:
         mask = np.ones(model.nx)
-    return np.linalg.norm(np.dot(mask, x - x_ref)) < conf.conv_tol
+    return np.linalg.norm(np.dot(mask, x - model.x_ref)) < conf.conv_tol
 
 
-def init_guess(n):
-    x_sol_vec, u_sol_vec = [], []
-    success_list = []
-    for k in range(n):
-        x0 = np.zeros((model.nx,))
-        x0[:model.nq] = x0_vec[k]
-        u0 = gc.solve(x0)
-
-        flag = controller.initialize(x0, u0)
-        xg, ug = controller.getGuess()
-        x_sol_vec.append(xg)
-        u_sol_vec.append(ug)
-        success_list.append(flag)
-            
-    return success_list, x_sol_vec, u_sol_vec
+def init_guess(q0):
+    x0 = np.zeros((model.nx,))
+    x0[:model.nq] = q0
+    u0 = gc.solve(x0)
+    flag = controller.initialize(x0, u0)
+    return controller.getGuess(), flag
 
 
 def simulate_mpc(p):
@@ -88,9 +80,7 @@ if __name__ == '__main__':
     gc = GravityCompensation(conf, model)
     simulator = SimDynamics(model)
     controller = getattr(controllers, available_controllers[args['controller']])(simulator)
-
-    x_ref = np.array([conf.q_max - 0.05, np.pi, np.pi, 0, 0, 0])
-    controller.setReference(x_ref)
+    controller.setReference(model.x_ref)
 
     # Check if data folder exists, if not create it
     if not os.path.exists(conf.DATA_DIR):
@@ -100,35 +90,50 @@ if __name__ == '__main__':
     # If ICs is active, compute the initial conditions for all the controller
     if args['init_conditions']:
         from scipy.stats import qmc
-        test_num = 500                      # Higher than the one reported in the configuration file
-        sampler = qmc.Halton(d=controller.ocp.dims.nu, scramble=False)
-        sample = sampler.random(n=test_num)
+
+        sampler = qmc.Halton(model.nq, scramble=False)
         l_bounds = model.x_min[:model.nq] + conf.state_tol
         u_bounds = model.x_max[:model.nq] - conf.state_tol
-        x0_vec = qmc.scale(sample, l_bounds, u_bounds)
 
         # Soft constraints an all the trajectory
         for i in range(controller.N):
             controller.ocp_solver.cost_set(i, "zl", conf.ws_r * np.ones((1,)))
         controller.ocp_solver.cost_set(controller.N, "zl", conf.ws_t * np.ones((1,)))
 
-        overall_success, x_guess_vec, u_guess_vec = init_guess(test_num)
-        # Save the results -> only the first conf.test_num
-        success_arr = np.asarray(overall_success)
-        idx = np.where(success_arr == 1)[0][:conf.test_num]
+        h = 0
+        failures = 0
+        x_init_vec, x_guess_vec, u_guess_vec = [], [], []
+        progress_bar = tqdm(total=conf.test_num, desc='Init guess processing')
+        while h < conf.test_num:
+            (x_g, u_g), status = init_guess(qmc.scale(sampler.random(), l_bounds, u_bounds))
+            if status:
+                x_init_vec.append(x_g[0, :model.nq])
+                x_guess_vec.append(x_g)
+                u_guess_vec.append(u_g)
+                h += 1
+                progress_bar.update(1)
+            else:
+                failures += 1
 
-        np.save(conf.DATA_DIR + 'x_init.npy', np.asarray(x0_vec)[idx])
-        np.save(conf.DATA_DIR + 'x_guess_vec.npy', np.asarray(x_guess_vec)[idx])
-        np.save(conf.DATA_DIR + 'u_guess_vec.npy', np.asarray(u_guess_vec)[idx])
-        print('Init guess success: %d over %d' % (np.sum(success_arr), test_num))
+        progress_bar.close()
+        np.save(conf.DATA_DIR + 'x_init.npy', np.asarray(x_init_vec))
+        np.save(conf.DATA_DIR + 'x_guess_vec.npy', np.asarray(x_guess_vec))
+        np.save(conf.DATA_DIR + 'u_guess_vec.npy', np.asarray(u_guess_vec))
+        print(f'Found {conf.test_num} initial conditions after {failures} failures.')
 
     elif args['guess']:
         if args['controller'] in ['naive', 'st']:
-            x0_vec = np.load(conf.DATA_DIR + 'x_init.npy')
-            overall_success, x_guess_vec, u_guess_vec = init_guess(conf.test_num)
+
+            x_init_vec = np.load(conf.DATA_DIR + 'x_init.npy')
+            x_guess_vec, u_guess_vec, successes = [], [], []
+            for x_init in x_init_vec:
+                (x_g, u_g), status = init_guess(x_init)
+                x_guess_vec.append(x_g)
+                u_guess_vec.append(u_g)
+                successes.append(status)
             np.save(data_name + 'x_guess.npy', np.asarray(x_guess_vec))
             np.save(data_name + 'u_guess.npy', np.asarray(u_guess_vec))
-            print('Init guess success: %d over %d' % (sum(overall_success), conf.test_num))
+            print('Init guess success: %d over %d' % (sum(successes), conf.test_num))
         else:
             # Just copy the initial guess in the corresponding controller folder
             shutil.copy(conf.DATA_DIR + 'x_guess_vec.npy', data_name + 'x_guess.npy')
