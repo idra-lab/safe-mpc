@@ -1,5 +1,6 @@
 import os
 import shutil
+import pickle
 import numpy as np
 import safe_mpc.model as models
 import safe_mpc.controller as controllers
@@ -46,7 +47,7 @@ def simulate_mpc(p):
     k = 0
     for k in range(conf.n_steps):
         u[k] = controller.step(x_sim[k])
-        # stats.append(controller.getTime())
+        stats.append(controller.getTime())
         x_sim[k + 1] = simulator.simulate(x_sim[k], u[k])
         # Check if the next state is inside the state bounds
         if not model.checkStateConstraints(x_sim[k + 1]):
@@ -154,6 +155,14 @@ if __name__ == '__main__':
 
         # Save last viable states (useful only for terminal/receding controllers)
         np.save(data_name + 'x_viable.npy', np.asarray(x_viable)[idx_abort])
+
+        # Save all the results
+        with open(data_name + 'results.pkl', 'wb') as f:
+            pickle.dump({'x_sim': np.asarray(x_sim_vec),
+                         'times': times,
+                         'steps': steps,
+                         'idx_abort': idx_abort,
+                         'x_viable': np.asarray(x_viable)}, f)
 
     elif args['controller'] == 'abort' and args['abort'] in ['stwa', 'htwa', 'receding']:
         # Increase time horizon
