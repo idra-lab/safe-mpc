@@ -1,0 +1,28 @@
+fonttype:
+  pdf: 42
+  ps: 42
+
+lines:
+  linewidth: 9
+  markersize: 6
+
+patch:
+  linewidth: 2
+
+axes:
+  grid: true
+  labelsize: 50
+
+font:
+  family: 'serif'
+  size: 50
+
+text:
+  usetex: true
+
+legend:
+  fontsize: 40
+  loc: 'best'
+
+figure:
+  facecolor: 'white'
