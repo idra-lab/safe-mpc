@@ -3,6 +3,7 @@
 *.pkl
 *.json
 *.png
+*.pdf
 *.zip
 generated/*
 nn_models/*
