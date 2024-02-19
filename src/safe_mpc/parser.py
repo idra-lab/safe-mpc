@@ -55,6 +55,8 @@ class Parameters:
         self.u_max = float(model['u_max'])
         self.state_tol = float(model['state_tol'])
         self.eps = float(model['eps'])
+        self.joint_target = int(model['joint_target'])
+        self.ubound_gap = float(model['ubound_gap'])
 
         simulator = yaml.load(open(self.CONF_DIR + 'simulator.yaml'), Loader=yaml.FullLoader)
         self.dt_s = float(simulator['dt'])

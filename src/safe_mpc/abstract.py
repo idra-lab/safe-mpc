@@ -56,6 +56,11 @@ class AbstractModel:
         self.x_min = np.hstack([params.q_min * np.ones(self.nq), -params.dq_max * np.ones(self.nq)])
         self.x_max = np.hstack([params.q_max * np.ones(self.nq), params.dq_max * np.ones(self.nq)])
 
+        # Target
+        self.x_ref = np.zeros(self.nx)
+        self.x_ref[:self.nq] = np.pi
+        self.x_ref[params.joint_target] = params.q_max - params.ubound_gap
+
         # NN model (viability constraint)
         self.l4c_model = None
         self.nn_model = None
