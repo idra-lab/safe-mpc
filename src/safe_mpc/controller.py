@@ -30,8 +30,6 @@ class NaiveController(AbstractController):
            self.simulator.checkDynamicsConstraints(self.x_temp[:2], np.array([self.u_temp[0]])):
             self.fails = 0
         else:
-            if self.fails >= self.N:
-                return None
             self.fails += 1
         return self.provideControl()
 
