@@ -1,5 +1,4 @@
 import os
-import shutil
 import pickle
 import numpy as np
 from tqdm import tqdm
@@ -87,6 +86,7 @@ if __name__ == '__main__':
         os.makedirs(conf.DATA_DIR)
     data_name = conf.DATA_DIR + args['controller'] + '_'
 
+    print(f'Running {available_controllers[args["controller"]]} with alpha = {conf.alpha}...')
     # If ICs is active, compute the initial conditions for all the controller
     if args['init_conditions']:
         from scipy.stats import qmc
@@ -116,31 +116,46 @@ if __name__ == '__main__':
                 failures += 1
 
         progress_bar.close()
-        np.save(conf.DATA_DIR + 'x_init.npy', np.asarray(x_init_vec))
-        np.save(conf.DATA_DIR + 'x_guess_vec.npy', np.asarray(x_guess_vec))
-        np.save(conf.DATA_DIR + 'u_guess_vec.npy', np.asarray(u_guess_vec))
+        np.save(conf.DATA_DIR + f'x_init_{conf.alpha}.npy', np.asarray(x_init_vec))
+        np.save(conf.DATA_DIR + f'x_guess_vec_{conf.alpha}.npy', np.asarray(x_guess_vec))
+        np.save(conf.DATA_DIR + f'u_guess_vec_{conf.alpha}.npy', np.asarray(u_guess_vec))
         print(f'Found {conf.test_num} initial conditions after {failures} failures.')
 
     elif args['guess']:
-        if args['controller'] in ['naive', 'st']:
+        x_init_vec = np.load(conf.DATA_DIR + f'x_init_{conf.alpha}.npy')
+        x_guess_vec, u_guess_vec, successes = [], [], []
 
-            x_init_vec = np.load(conf.DATA_DIR + 'x_init.npy')
-            x_guess_vec, u_guess_vec, successes = [], [], []
+        if args['controller'] in ['naive', 'st']:
             for x_init in x_init_vec:
                 (x_g, u_g), status = init_guess(x_init)
                 x_guess_vec.append(x_g)
                 u_guess_vec.append(u_g)
                 successes.append(status)
-            np.save(data_name + 'x_guess.npy', np.asarray(x_guess_vec))
-            np.save(data_name + 'u_guess.npy', np.asarray(u_guess_vec))
-            print('Init guess success: %d over %d' % (sum(successes), conf.test_num))
         else:
-            # Just copy the initial guess in the corresponding controller folder
-            shutil.copy(conf.DATA_DIR + 'x_guess_vec.npy', data_name + 'x_guess.npy')
-            shutil.copy(conf.DATA_DIR + 'u_guess_vec.npy', data_name + 'u_guess.npy')
+            x_feasible = np.load(conf.DATA_DIR + f'x_guess_vec_{conf.alpha}.npy')
+            u_feasible = np.load(conf.DATA_DIR + f'u_guess_vec_{conf.alpha}.npy')
+            # Try to refine the guess with respect to the controller used
+            for i in range(conf.test_num):
+                controller.setGuess(x_feasible[i], u_feasible[i])
+                x_init = np.zeros((model.nx,))
+                x_init[:model.nq] = x_init_vec[i]
+                status = controller.solve(x_init)
+                if (status == 0 or status == 2) and controller.checkGuess():
+                    # Refinement successful
+                    x_g, u_g = controller.getGuess()
+                    x_guess_vec.append(x_g)
+                    u_guess_vec.append(u_g)
+                    successes.append(1)
+                else:
+                    # Refinement failed, use the feasible guess
+                    x_guess_vec.append(x_feasible[i])
+                    u_guess_vec.append(u_feasible[i])
+        np.save(data_name + 'x_guess.npy', np.asarray(x_guess_vec))
+        np.save(data_name + 'u_guess.npy', np.asarray(u_guess_vec))
+        print('Init guess success: %d over %d' % (sum(successes), conf.test_num))
 
     elif args['rti']:
-        x0_vec = np.load(conf.DATA_DIR + 'x_init.npy')
+        x0_vec = np.load(conf.DATA_DIR + f'x_init_{conf.alpha}.npy')
         x_guess_vec = np.load(data_name + 'x_guess.npy')
         u_guess_vec = np.load(data_name + 'u_guess.npy')
         res = []
@@ -181,7 +196,6 @@ if __name__ == '__main__':
                 controller.setGuess(np.full((controller.N + 1, model.nx), x_viable[i]),
                                     np.zeros((controller.N, model.nu)))
                 status = controller.solve(x_viable[i])
-                print(status)
                 if status == 0:
                     t_rep[i, j] = controller.ocp_solver.get_stats('time_tot')[0]
         # Compute the minimum time for each initial condition
