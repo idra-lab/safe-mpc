@@ -43,5 +43,5 @@ receding:
 # Safe Abort OCP
 abort:
   dt: 5e-3
-  T: 0.2
-  q_dot_gain: 1e4
+  T: 0.18
+  q_dot_gain: 1e6
