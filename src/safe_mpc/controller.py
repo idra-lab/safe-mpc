@@ -1,4 +1,5 @@
 import numpy as np
+import scipy.linalg as lin
 from .abstract import AbstractController
 
 
@@ -121,12 +122,17 @@ class RecedingController(STWAController):
 class SafeBackupController(AbstractController):
     def __init__(self, simulator):
         super().__init__(simulator)
+
+    def additionalSetting(self):
         self.Q = np.zeros((self.model.nx, self.model.nx))
         self.Q[self.model.nq:, self.model.nq:] = np.eye(self.model.nv) * self.params.q_dot_gain
 
-        q_fin_lb = np.hstack([self.model.x_min[:self.model.nq], np.zeros(self.model.nv)])
-        q_fin_ub = np.hstack([self.model.x_max[:self.model.nq], np.zeros(self.model.nv)])
+        self.ocp.cost.W = lin.block_diag(self.Q, self.R)
+        self.ocp.cost.W_e = self.Q
 
-        self.ocp.constraints.lbx_e = q_fin_lb
-        self.ocp.constraints.ubx_e = q_fin_ub
-        self.ocp.constraints.idxbx_e = np.arange(self.model.nx)
+        # q_fin_lb = np.hstack([self.model.x_min[:self.model.nq], np.zeros(self.model.nv)])
+        # q_fin_ub = np.hstack([self.model.x_max[:self.model.nq], np.zeros(self.model.nv)])
+
+        # self.ocp.constraints.lbx_e = q_fin_lb
+        # self.ocp.constraints.ubx_e = q_fin_ub
+        # self.ocp.constraints.idxbx_e = np.arange(self.model.nx)
