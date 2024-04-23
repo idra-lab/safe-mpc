@@ -1,160 +1,155 @@
-import numpy as np
 import re
+import numpy as np
 from copy import deepcopy
 import scipy.linalg as lin
-from casadi import MX, vertcat, norm_2, Function, Opti, integrator
-from acados_template import AcadosModel, AcadosSim, AcadosSimSolver, AcadosOcp, AcadosOcpSolver
+from urdf_parser_py.urdf import URDF
+import adam
+from adam.casadi import KinDynComputations
+from casadi import MX, vertcat, norm_2, Function
+from acados_template import AcadosModel, AcadosOcp, AcadosOcpSolver
 import torch
 import torch.nn as nn
 import l4casadi as l4c
 
 
-class NeuralNetDIR(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size):
-        super(NeuralNetDIR, self).__init__()
-        self.linear_relu_stack = nn.Sequential(
+class NeuralNetwork(nn.Module):
+    def __init__(self, input_size, hidden_size, output_size, activation=nn.ReLU()):
+        super().__init__()
+        # TODO: name of stack must match the one in the training script
+        self.linear_stack = nn.Sequential(
             nn.Linear(input_size, hidden_size),
-            nn.ReLU(),
+            activation,
             nn.Linear(hidden_size, hidden_size),
-            nn.ReLU(),
+            activation,
             nn.Linear(hidden_size, output_size),
-            nn.ReLU(),
+            activation,
         )
 
     def forward(self, x):
-        out = self.linear_relu_stack(x)
+        out = self.linear_stack(x)
         return out
 
 
-class AbstractModel:
-    def __init__(self, params):
+class AdamModel:
+    def __init__(self, params, n_dofs=False):
         self.params = params
         self.amodel = AcadosModel()
-        # Dummy dynamics (double integrator)
-        self.amodel.name = "double_integrator"
-        self.x = MX.sym("x")
-        self.x_dot = MX.sym("x_dot")
-        self.u = MX.sym("u")
-        self.f_expl = self.u
-        self.p = MX.sym("p")
-        self.addDynamicsModel(params)
+        # Robot dynamics with Adam (IIT)
+        robot = URDF.from_xml_file(params.robot_urdf)
+        try:
+            n_dofs = n_dofs if n_dofs else len(robot.joints)
+            if n_dofs > len(robot.joints) or n_dofs < 1:
+                raise ValueError
+        except ValueError:
+            print(f'\nInvalid number of degrees of freedom! Must be > 1 and <= {len(robot.joints)}\n')
+            exit()
+        robot_joints = robot.joints[1:n_dofs+1] if params.urdf_name == 'z1' else robot.joints[:n_dofs]
+        joint_names = [joint.name for joint in robot_joints]
+        kin_dyn = KinDynComputations(params.robot_urdf, joint_names, robot.get_root())        
+        kin_dyn.set_frame_velocity_representation(adam.Representations.BODY_FIXED_REPRESENTATION)
+        self.mass = kin_dyn.mass_matrix_fun()       # Mass matrix
+        self.bias = kin_dyn.bias_force_fun()        # Nonlinear effects  
+        self.gravity = kin_dyn.gravity_term_fun()   # Gravity vector
+        nq = len(joint_names)
+
+        self.amodel.name = params.urdf_name
+        self.x = MX.sym("x", nq * 2)
+        self.x_dot = MX.sym("x_dot", nq * 2)
+        self.u = MX.sym("u", nq)
+        self.p = MX.sym("p", 1)
+        self.f_disc = vertcat(
+            self.x[:nq] + params.dt * self.x[nq:] + 0.5 * params.dt**2 * self.u,
+            self.x[nq:] + params.dt * self.u
+        ) 
+            
         self.amodel.x = self.x
-        self.amodel.xdot = self.x_dot
         self.amodel.u = self.u
-        self.amodel.f_expl_expr = self.f_expl
+        self.amodel.disc_dyn_expr = self.f_disc
         self.amodel.p = self.p
 
         self.nx = self.amodel.x.size()[0]
         self.nu = self.amodel.u.size()[0]
         self.ny = self.nx + self.nu
-        self.nq = int(self.nx / 2)
-        self.nv = self.nx - self.nq
+        self.nq = nq
+        self.nv = nq
 
         # Joint limits
-        self.u_min = -params.u_max * np.ones(self.nu)
-        self.u_max = params.u_max * np.ones(self.nu)
-        self.x_min = np.hstack([params.q_min * np.ones(self.nq), -params.dq_max * np.ones(self.nq)])
-        self.x_max = np.hstack([params.q_max * np.ones(self.nq), params.dq_max * np.ones(self.nq)])
+        joint_lower = np.array([joint.limit.lower for joint in robot_joints])
+        joint_upper = np.array([joint.limit.upper for joint in robot_joints])
+        joint_velocity = np.array([joint.limit.velocity for joint in robot_joints])
+        joint_effort = np.array([joint.limit.effort for joint in robot_joints]) 
+
+        self.tau_min = - joint_effort
+        self.tau_max = joint_effort
+        self.x_min = np.hstack([joint_lower, - joint_velocity])
+        self.x_max = np.hstack([joint_upper, joint_velocity])
+        self.eps = params.state_tol
 
         # Target
         self.x_ref = np.zeros(self.nx)
         self.x_ref[:self.nq] = np.pi
-        self.x_ref[params.joint_target] = params.q_max - params.ubound_gap
+        self.x_ref[params.joint_target] = joint_upper[params.joint_target] - params.ubound_gap
 
         # NN model (viability constraint)
         self.l4c_model = None
         self.nn_model = None
         self.nn_func = None
 
-    def addDynamicsModel(self, params):
-        pass
-
     def checkStateConstraints(self, x):
-        return np.all(np.logical_and(x >= self.x_min, x <= self.x_max))
+        return np.all(np.logical_and(x >= self.x_min + self.eps, x <= self.x_max - self.eps))
 
     def checkControlConstraints(self, u):
-        return np.all(np.logical_and(u >= self.u_min, u <= self.u_max))
+        return np.all(np.logical_and(u >= self.tau_min, u <= self.tau_max))
 
     def checkRunningConstraints(self, x, u):
         return self.checkStateConstraints(x) and self.checkControlConstraints(u)
 
     def checkSafeConstraints(self, x):
         return self.nn_func(x, self.params.alpha) >= 0. 
-
-    def setNNmodel(self):
-        device = torch.device('cuda')
-        model = NeuralNetDIR(self.nx, (self.nx - 1) * 100, 1).to(device)
-        model.load_state_dict(torch.load(self.params.NN_DIR + 'model.zip', map_location=device))
-        mean = torch.load(self.params.NN_DIR + 'mean.zip')
-        std = torch.load(self.params.NN_DIR + 'std.zip')
-
-        x_cp = deepcopy(self.x)
-        x_cp[self.nq] += self.params.eps
-        vel_norm = norm_2(x_cp[self.nq:])
-        pos = (x_cp[:self.nq] - mean) / std
-        vel_dir = x_cp[self.nq:] / vel_norm
-        state = vertcat(pos, vel_dir)
-
-        # i = 0
-        # out = state
-        # weights = list(model.parameters())
-        # for weight in weights:
-        #     weight = MX(np.array(weight.tolist()))
-        #     if i % 2 == 0:
-        #         out = weight @ out
-        #     else:
-        #         out = weight + out
-        #         if i == 1 or i == 3:
-        #             out = fmax(0., out)
-        #     i += 1
-        # self.nn_model = out * (100 - self.p) / 100 - vel_norm
-
-        self.l4c_model = l4c.L4CasADi(model,
-                                      device='cuda',
-                                      name=self.amodel.name + '_model',
-                                      build_dir=self.params.GEN_DIR + 'nn_' + self.amodel.name)
-        self.nn_model = self.l4c_model(state) * (100 - self.p) / 100 - vel_norm
-        self.nn_func = Function('nn_func', [self.x, self.p], [self.nn_model])
-
-
-class SimDynamics:
-    def __init__(self, model):
-        self.model = model
-        self.params = model.params
-        sim = AcadosSim()
-        sim.model = model.amodel
-        sim.solver_options.T = self.params.dt_s
-        sim.solver_options.integrator_type = self.params.integrator_type
-        sim.solver_options.num_stages = self.params.num_stages
-        sim.parameter_values = np.array([0.])
-        gen_name = self.params.GEN_DIR + '/sim_' + sim.model.name
-        sim.code_export_directory = gen_name
-        self.integrator = AcadosSimSolver(sim, build=self.params.regenerate, json_file=gen_name + '.json')
-
-    def simulate(self, x, u):
-        self.integrator.set("x", x)
-        self.integrator.set("u", u)
-        self.integrator.solve()
-        x_next = self.integrator.get("x")
+    
+    def integrate(self, x, u):
+        x_next = np.zeros(self.nx)
+        x_next[:self.nq] = x[:self.nq] + self.params.dt * x[self.nq:] + 0.5 * self.params.dt**2 * u
+        x_next[self.nq:] = x[self.nq:] + self.params.dt * u
         return x_next
 
     def checkDynamicsConstraints(self, x, u):
         # Rollout the control sequence
         n = np.shape(u)[0]
-        x_sim = np.zeros((n + 1, self.model.nx))
+        x_sim = np.zeros((n + 1, self.nx))
         x_sim[0] = np.copy(x[0])
         for i in range(n):
-            x_sim[i + 1] = self.simulate(x_sim[i], u[i])
+            x_sim[i + 1] = self.integrate(x_sim[i], u[i])
         # Check if the rollout state trajectory is almost equal to the optimal one
-        return np.linalg.norm(x - x_sim) < self.params.state_tol * np.sqrt(n+1) 
+        return np.linalg.norm(x - x_sim) < self.eps * np.sqrt(n+1) 
+    
+    def setNNmodel(self):
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        model = NeuralNetwork(self.nx, (self.nx - 1) * 100, 1).to(device)
+        nn_data = torch.load(f'{self.params.NN_DIR}model_{self.nq}dof.pt')
+        model.load_state_dict(nn_data['model'])
+
+        x_cp = deepcopy(self.x)
+        x_cp[self.nq] += self.eps
+        vel_norm = norm_2(x_cp[self.nq:])
+        pos = (x_cp[:self.nq] - nn_data['mean']) / nn_data['std']
+        vel_dir = x_cp[self.nq:] / vel_norm
+        state = vertcat(pos, vel_dir)
+
+        self.l4c_model = l4c.L4CasADi(model,
+                                      device='cuda',
+                                      name=f'{self.amodel.name}_model',
+                                      build_dir=f'{self.params.GEN_DIR}nn_{self.amodel.name}')
+        # TODO: try to simplify the expression, take only the function
+        self.nn_model = self.l4c_model(state) * (100 - self.p) / 100 - vel_norm
+        self.nn_func = Function('nn_func', [self.x, self.p], [self.nn_model])
 
 
 class AbstractController:
-    def __init__(self, simulator):
+    def __init__(self, model):
         self.ocp_name = "".join(re.findall('[A-Z][^A-Z]*', self.__class__.__name__)[:-1]).lower()
-        self.simulator = simulator
-        self.params = simulator.params
-        self.model = simulator.model
+        self.params = model.params
+        self.model = model
 
         self.N = int(self.params.T / self.params.dt)
         self.ocp = AcadosOcp()
@@ -193,8 +188,8 @@ class AbstractController:
         self.ocp.constraints.ubx_0 = self.model.x_max
         self.ocp.constraints.idxbx_0 = np.arange(self.model.nx)
 
-        self.ocp.constraints.lbu = self.model.u_min
-        self.ocp.constraints.ubu = self.model.u_max
+        self.ocp.constraints.lbu = self.model.tau_min
+        self.ocp.constraints.ubu = self.model.tau_max
         self.ocp.constraints.idxbu = np.arange(self.model.nu)
         self.ocp.constraints.lbx = self.model.x_min
         self.ocp.constraints.ubx = self.model.x_max
@@ -203,14 +198,25 @@ class AbstractController:
         self.ocp.constraints.lbx_e = self.model.x_min
         self.ocp.constraints.ubx_e = self.model.x_max
         self.ocp.constraints.idxbx_e = np.arange(self.model.nx)
+        # Nonlinear constraint --> dynamics
+        H_b = np.eye(4)
+        self.computed_torque = self.model.mass(H_b, self.model.x[:self.model.nq])[6:, 6:] @ self.model.u + \
+                               self.model.bias(H_b, self.model.x[:self.model.nq], np.zeros(6), self.model.x[self.model.nq:])[6:]
+        self.model.amodel.con_h_expr_0 = self.computed_torque
+        self.model.amodel.con_h_expr = self.computed_torque
+
+        self.ocp.constraints.lh_0 = self.model.tau_min
+        self.ocp.constraints.uh_0 = self.model.tau_max
+        self.ocp.constraints.lh = self.model.tau_min
+        self.ocp.constraints.uh = self.model.tau_max
 
         # Solver options
+        self.ocp.solver_options.integrator_type = "DISCRETE"
         self.ocp.solver_options.nlp_solver_type = self.params.solver_type
         self.ocp.solver_options.hpipm_mode = self.params.solver_mode
         self.ocp.solver_options.nlp_solver_max_iter = self.params.nlp_max_iter
         self.ocp.solver_options.qp_solver_iter_max = self.params.qp_max_iter
         self.ocp.solver_options.globalization = self.params.globalization
-        # self.ocp.solver_options.levenberg_marquardt = 1e2
 
         # Additional settings, in general is an empty method
         self.additionalSetting()
@@ -219,7 +225,7 @@ class AbstractController:
         self.ocp.code_export_directory = gen_name
         self.ocp_solver = AcadosOcpSolver(self.ocp, json_file=gen_name + '.json', build=self.params.regenerate)
 
-        # Initialize guess
+        # Reference and fails counter
         self.fails = 0
         self.x_ref = np.zeros(self.model.nx)
 
@@ -239,6 +245,7 @@ class AbstractController:
         pass
 
     def terminalConstraint(self, soft=True):
+        # No dynamics (since acceleration is seen as input)
         self.model.setNNmodel()
         self.model.amodel.con_h_expr_e = self.model.nn_model
 
@@ -251,26 +258,28 @@ class AbstractController:
         if soft:
             self.ocp.constraints.idxsh_e = np.array([0])
 
-            self.ocp.cost.zl_e = np.ones((1,)) * self.params.ws_t
-            self.ocp.cost.zu_e = np.zeros((1,))
-            self.ocp.cost.Zl_e = np.zeros((1,))
-            self.ocp.cost.Zu_e = np.zeros((1,))
+            self.ocp.cost.zl_e = np.array([self.params.ws_t])
+            self.ocp.cost.zu_e = np.array([1.])
+            self.ocp.cost.Zl_e = np.array([1.])
+            self.ocp.cost.Zu_e = np.array([1.])
 
     def runningConstraint(self, soft=True):
         # Suppose that the NN model is already set (same for external model shared lib)
-        self.model.amodel.con_h_expr = self.model.nn_model
+        # Need also to include the dynamics constraint
+        self.model.amodel.con_h_expr = vertcat(self.computed_torque, self.model.nn_model)
 
-        self.ocp.constraints.lh = np.array([0.])
-        self.ocp.constraints.uh = np.array([1e6])
+        self.ocp.constraints.lh = np.hstack([self.model.tau_min, 0.])       
+        self.ocp.constraints.uh = np.hstack([self.model.tau_max, 1e6])       
 
         if soft:
-            self.ocp.constraints.idxsh = np.array([0])
+            # Skip the first nu constraints (dynamics)
+            self.ocp.constraints.idxsh = np.array([self.model.nu])
 
             # Set zl initially to zero, then apply receding constraint in the step method
-            self.ocp.cost.zl = np.zeros((1,))
-            self.ocp.cost.zu = np.zeros((1,))
-            self.ocp.cost.Zl = np.zeros((1,))
-            self.ocp.cost.Zu = np.zeros((1,))
+            self.ocp.cost.zl = np.array([1.])
+            self.ocp.cost.zu = np.array([1.])
+            self.ocp.cost.Zl = np.array([1.])
+            self.ocp.cost.Zu = np.array([1.])
 
     def solve(self, x0):
         # Reset current iterate
@@ -344,74 +353,3 @@ class AbstractController:
 
     def getLastViableState(self):
         return np.copy(self.x_viable)
-
-
-class IpoptController:
-    def __init__(self, params, model, x_ref, terminal=False):
-        self.params = params
-        self.model = model
-        self.N = params.N
-        self.x = model.x
-        self.u = model.u
-        self.x_ref = x_ref
-
-        self.x_guess = np.zeros((self.N + 1, model.nx))
-        self.u_guess = np.zeros((self.N, model.nu))
-
-        # Define the integrator
-        self.f_expl = integrator('f_expl', 'cvodes', {'x': self.x, 'p': self.u, 'ode': model.f_expl},
-                                 0, self.params.dt)
-
-        # QR regularization
-        self.Q = 1e-4 * np.eye(self.model.nx)
-        self.Q[0, 0] = 5e2
-        self.R = 1e-4 * np.eye(self.model.nu)
-
-        # Define the OCP
-        self.opti = Opti()
-        self.xs = self.opti.variable(self.model.nx, self.N + 1)
-        self.us = self.opti.variable(self.model.nu, self.N)
-
-        self.cost = Function('cost', [self.x, self.u], [self.runningCost(self.x, self.u)])
-
-        total_cost = 0
-        for i in range(self.N):
-            total_cost += self.cost(self.xs[:, i], self.us[:, i])
-            self.opti.subject_to(self.xs[:, i + 1] == self.f_expl(x0=self.xs[:, i], p=self.us[:, i])['xf'])
-            self.opti.subject_to(self.opti.bounded(self.model.x_min, self.xs[:, i], self.model.x_max))
-            self.opti.subject_to(self.opti.bounded(self.model.u_min, self.us[:, i], self.model.u_max))
-        t_cost = self.cost(self.xs[:, -1], np.zeros(self.model.nu))
-        total_cost += t_cost
-        self.opti.subject_to(self.opti.bounded(self.model.x_min, self.xs[:, -1], self.model.x_max))
-
-        if terminal:
-            self.opti.subject_to(self.model.nn_func(self.xs[:, -1], params.alpha) >= 0.)
-
-        self.opti.minimize(total_cost)
-
-        opts = {'ipopt.print_level': 0, 'print_time': 0, 'ipopt.sb': 'yes', 'ipopt.linear_solver': 'ma57'}
-        self.opti.solver('ipopt', opts)
-
-    def solve(self, x0):
-
-        for i in range(self.N):
-            self.opti.set_initial(self.xs[:, i], x0)
-            self.opti.set_initial(self.us[:, i], np.zeros(self.model.nu))
-        self.opti.set_initial(self.xs[:, -1], x0)
-
-        try:
-            sol = self.opti.solve()
-            self.x_guess = np.copy(sol.value(self.xs))
-            self.u_guess = np.copy(sol.value(self.us))
-            return 1
-        except RuntimeError:
-            return 0
-
-    def setReference(self, x_ref):
-        self.x_ref = x_ref
-
-    def runningCost(self, x, u):
-        return (x - self.x_ref).T @ self.Q @ (x - self.x_ref) + u.T @ self.R @ u
-
-    def getGuess(self):
-        return np.copy(self.x_guess), np.copy(self.u_guess)
