@@ -1,13 +1,13 @@
 *.npy
 *.npz
 *.pkl
-*.json
 *.png
 *.pdf
 *.zip
 generated/*
 nn_models/*
 data/*
+.github/
 .idea/
 **/c_generated_code/
 **/__pycache__/
