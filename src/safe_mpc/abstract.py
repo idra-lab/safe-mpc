@@ -82,7 +82,7 @@ class AbstractModel:
         return self.nn_func(x, self.params.alpha) >= 0. 
 
     def setNNmodel(self):
-        device = torch.device('cuda')
+        device = torch.device('cpu')
         model = NeuralNetDIR(self.nx, (self.nx - 1) * 100, 1).to(device)
         model.load_state_dict(torch.load(self.params.NN_DIR + 'model.zip', map_location=device))
         mean = torch.load(self.params.NN_DIR + 'mean.zip')
@@ -110,7 +110,7 @@ class AbstractModel:
         # self.nn_model = out * (100 - self.p) / 100 - vel_norm
 
         self.l4c_model = l4c.L4CasADi(model,
-                                      device='cuda',
+                                      device='cpu',
                                       name=self.amodel.name + '_model',
                                       build_dir=self.params.GEN_DIR + 'nn_' + self.amodel.name)
         self.nn_model = self.l4c_model(state) * (100 - self.p) / 100 - vel_norm
