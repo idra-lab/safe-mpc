@@ -18,8 +18,8 @@ def convergenceCriteria(x, mask=None):
 def init_guess(q0):
     x0 = np.zeros((model.nx,))
     x0[:model.nq] = q0
-    u0 = gc.solve(x0)
-    flag = controller.initialize(x0, u0)
+    # u0 = gc.solve(x0)
+    flag = controller.initialize(x0)
     return controller.getGuess(), flag
 
 
@@ -96,7 +96,7 @@ if __name__ == '__main__':
         u_bounds = model.x_max[:model.nq] - conf.state_tol
 
         # Soft constraints an all the trajectory
-        for i in range(controller.N):
+        for i in range(1, controller.N):
             controller.ocp_solver.cost_set(i, "zl", conf.ws_r * np.ones((1,)))
         controller.ocp_solver.cost_set(controller.N, "zl", conf.ws_t * np.ones((1,)))
 
@@ -171,7 +171,7 @@ if __name__ == '__main__':
         print('99% quantile computation time:')
         times = np.array([t for arr in t_stats for t in arr])
         for field, t in zip(controller.time_fields, np.quantile(times, 0.99, axis=0)):
-            print(f"{field:<20} -> {t[0]}")
+            print(f"{field:<20} -> {t}")
 
         # Save last viable states (useful only for terminal/receding controllers)
         np.save(data_name + 'x_viable.npy', np.asarray(x_viable)[idx_abort])
