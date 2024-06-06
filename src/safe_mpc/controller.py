@@ -27,8 +27,8 @@ class NaiveController(AbstractController):
 
     def step(self, x):
         status = self.solve(x)
-        if status == 0 and self.model.checkControlConstraints(self.u_temp[0]) and \
-           self.model.checkDynamicsConstraints(self.x_temp[:2], np.array([self.u_temp[0]])):
+        if status == 0 and self.model.checkControlConstraints(self.u_temp[0]): #and \
+        #    self.simulator.checkDynamicsConstraints(self.x_temp[:2], np.array([self.u_temp[0]])):
             self.fails = 0
         else:
             self.fails += 1
