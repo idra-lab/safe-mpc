@@ -56,7 +56,7 @@ class Parameters:
         
         self.T = float(parameters['T'])
         self.dt = float(parameters['dt'])
-        self.alpha = int(parameters['alpha'])
+        self.alpha = float(parameters['alpha'])
 
         self.solver_type = 'SQP_RTI' if rti else 'SQP'
         self.solver_mode = parameters['solver_mode']
@@ -78,3 +78,7 @@ class Parameters:
         self.q_dot_gain = float(parameters['q_dot_gain'])
         self.ws_t = float(parameters['ws_t'])
         self.ws_r = float(parameters['ws_r'])
+
+        # For cartesian constraint
+        self.obs_flag = bool(parameters['obs_flag'])
+        self.frame_name = 'link2'       #  TODO: dependence on the robot

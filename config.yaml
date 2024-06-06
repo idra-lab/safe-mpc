@@ -1,14 +1,14 @@
 test_num: 100             # number of tests
-n_steps: 200              # number of time steps in each test
+n_steps: 2000              # number of time steps in each test
 cpu_num: 24
 regenerate: true          # regenerate data
 
 T: 1                      # horizon in seconds
 dt: 1e-2                  # time step
-alpha: 2                  # safety margin 
+alpha: 1.                  # safety margin 
 
 solver_mode: 'BALANCE'    # HPIPM mode, can be --> 'BALANCE', 'ROBUST', 'SPEED', 'SPEED_ABS'
-nlp_max_iter: 100
+nlp_max_iter: 200
 qp_max_iter: 100
 qp_tol_stat: 1e-3         # QP solver tolerance on stationary residuals
 nlp_tol_stat: 1e-3        # NLP solver tolerance on stationary residuals
@@ -16,7 +16,7 @@ alpha_reduction: 0.3
 alpha_min: 1e-2
 levenberg_marquardt: 1e-5
 
-state_tol: 1e-2           # state tolerance
+state_tol: 1e-8           # state tolerance
 conv_tol: 1e-3            # convergence tolerance for the task
 cost_tol: 1e-3            # Tolerance for the cost
 
@@ -25,3 +25,5 @@ ubound_gap: 5e-2
 q_dot_gain: 1e4
 ws_t: 1e4
 ws_r: 1e4
+
+obs_flag: True           # activation of Cartesian constraints

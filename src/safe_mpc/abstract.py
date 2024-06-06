@@ -47,9 +47,10 @@ class AdamModel:
         joint_names = [joint.name for joint in robot_joints]
         kin_dyn = KinDynComputations(params.robot_urdf, joint_names, robot.get_root())        
         kin_dyn.set_frame_velocity_representation(adam.Representations.BODY_FIXED_REPRESENTATION)
-        self.mass = kin_dyn.mass_matrix_fun()       # Mass matrix
-        self.bias = kin_dyn.bias_force_fun()        # Nonlinear effects  
-        self.gravity = kin_dyn.gravity_term_fun()   # Gravity vector
+        self.mass = kin_dyn.mass_matrix_fun()                           # Mass matrix
+        self.bias = kin_dyn.bias_force_fun()                            # Nonlinear effects  
+        self.gravity = kin_dyn.gravity_term_fun()                       # Gravity vector
+        self.fk = kin_dyn.forward_kinematics_fun(params.frame_name)     # Forward kinematics
         nq = len(joint_names)
 
         self.amodel.name = params.urdf_name
@@ -76,7 +77,7 @@ class AdamModel:
         # Joint limits
         joint_lower = np.array([joint.limit.lower for joint in robot_joints])
         joint_upper = np.array([joint.limit.upper for joint in robot_joints])
-        joint_velocity = np.array([joint.limit.velocity for joint in robot_joints])
+        joint_velocity = np.array([joint.limit.velocity for joint in robot_joints]) 
         joint_effort = np.array([joint.limit.effort for joint in robot_joints]) 
 
         self.tau_min = - joint_effort
@@ -95,6 +96,10 @@ class AdamModel:
         self.nn_model = None
         self.nn_func = None
 
+        # Cartesian constraint
+        self.t_loc = np.array([0., 0., 0.2])
+        self.z_bounds = np.array([-0.25, 1e6])
+
     def checkStateConstraints(self, x):
         return np.all(np.logical_and(x >= self.x_min + self.eps, x <= self.x_max - self.eps))
 
@@ -102,7 +107,7 @@ class AdamModel:
         return np.all(np.logical_and(u >= self.tau_min, u <= self.tau_max))
 
     def checkRunningConstraints(self, x, u):
-        return self.checkStateConstraints(x) and self.checkControlConstraints(u)
+        return self.checkStateConstraints(x) #and self.checkControlConstraints(u)
 
     def checkSafeConstraints(self, x):
         return self.nn_func(x, self.params.alpha) >= 0. 
@@ -163,8 +168,10 @@ class AbstractController:
 
         # Cost
         self.Q = 1e-4 * np.eye(self.model.nx)
-        self.Q[0, 0] = 5e2
         self.R = 1e-4 * np.eye(self.model.nu)
+        self.Q[0, 0] = 5e2
+        self.Q[2, 2] = 1e2
+        self.Q[1, 1] = 1e2
 
         self.ocp.cost.W = lin.block_diag(self.Q, self.R)
         self.ocp.cost.W_e = self.Q
@@ -180,6 +187,20 @@ class AbstractController:
 
         self.ocp.cost.yref = np.zeros(self.model.ny)
         self.ocp.cost.yref_e = np.zeros(self.model.nx)
+        # Minimize effort
+        H_b = np.eye(4)
+        tau = self.model.mass(H_b, self.model.x[:self.model.nq])[6:, 6:] @ self.model.u + \
+              self.model.bias(H_b, self.model.x[:self.model.nq], np.zeros(6), self.model.x[self.model.nq:])[6:]
+        # self.Q = 5e-2 * np.eye(self.model.nx)
+        # self.R = 1e0 * np.eye(self.model.nu)
+
+        # self.ocp.cost.cost_type_0 = "EXTERNAL"
+        # self.ocp.cost.cost_type = "EXTERNAL"
+
+        # min_effort = self.model.x.T @ self.Q @ self.model.x + tau.T @ self.R @ tau 
+        # self.ocp.model.cost_expr_ext_cost_0 = min_effort
+        # self.ocp.model.cost_expr_ext_cost = min_effort
+
         # Set alpha to zero as default
         self.ocp.parameter_values = np.array([0.])
 
@@ -188,9 +209,6 @@ class AbstractController:
         self.ocp.constraints.ubx_0 = self.model.x_max
         self.ocp.constraints.idxbx_0 = np.arange(self.model.nx)
 
-        self.ocp.constraints.lbu = self.model.tau_min
-        self.ocp.constraints.ubu = self.model.tau_max
-        self.ocp.constraints.idxbu = np.arange(self.model.nu)
         self.ocp.constraints.lbx = self.model.x_min
         self.ocp.constraints.ubx = self.model.x_max
         self.ocp.constraints.idxbx = np.arange(self.model.nx)
@@ -198,28 +216,54 @@ class AbstractController:
         self.ocp.constraints.lbx_e = self.model.x_min
         self.ocp.constraints.ubx_e = self.model.x_max
         self.ocp.constraints.idxbx_e = np.arange(self.model.nx)
-        # Nonlinear constraint --> dynamics
-        H_b = np.eye(4)
-        self.computed_torque = self.model.mass(H_b, self.model.x[:self.model.nq])[6:, 6:] @ self.model.u + \
-                               self.model.bias(H_b, self.model.x[:self.model.nq], np.zeros(6), self.model.x[self.model.nq:])[6:]
-        self.model.amodel.con_h_expr_0 = self.computed_torque
-        self.model.amodel.con_h_expr = self.computed_torque
+        
+        # Nonlinear constraint
+        self.nl_con, self.nl_con_e = [], []
+        self.nl_lb, self.nl_lb_e = [], []
+        self.nl_ub, self.nl_ub_e = [], []
+        
+        # --> dynamics (only on running nodes)
+        
+        self.nl_con.append(tau)
+        self.nl_lb.append(self.model.tau_min)
+        self.nl_ub.append(self.model.tau_max)
+        
+        # --> collision (both on running and terminal nodes)
+        if self.params.obs_flag:
+            T_ee = self.model.fk(H_b, self.model.x[:self.model.nq]) 
+            T_ee[:3, 3] += T_ee[:3, :3] @ self.model.t_loc
+            self.nl_con.append(T_ee[2, 3])
+            self.nl_con_e.append(T_ee[2, 3])
 
-        self.ocp.constraints.lh_0 = self.model.tau_min
-        self.ocp.constraints.uh_0 = self.model.tau_max
-        self.ocp.constraints.lh = self.model.tau_min
-        self.ocp.constraints.uh = self.model.tau_max
+            self.nl_lb.append(self.model.z_bounds[0])
+            self.nl_ub.append(self.model.z_bounds[1])
+            self.nl_lb_e.append(self.model.z_bounds[0])
+            self.nl_ub_e.append(self.model.z_bounds[1])
+
+        # Additional settings, in general is an empty method
+        self.additionalSetting()
+
+        self.model.amodel.con_h_expr_0 = vertcat(*self.nl_con)   
+        self.model.amodel.con_h_expr = vertcat(*self.nl_con)
+        self.model.amodel.con_h_expr_e = vertcat(*self.nl_con_e)
+        
+        self.ocp.constraints.lh_0 = np.hstack(self.nl_lb)
+        self.ocp.constraints.uh_0 = np.hstack(self.nl_ub)
+        self.ocp.constraints.lh = np.hstack(self.nl_lb)
+        self.ocp.constraints.uh = np.hstack(self.nl_ub)
+        self.ocp.constraints.lh_e = np.hstack(self.nl_lb_e)
+        self.ocp.constraints.uh_e = np.hstack(self.nl_ub_e)
 
         # Solver options
         self.ocp.solver_options.integrator_type = "DISCRETE"
+        self.ocp.solver_options.hessian_approx = "EXACT"
         self.ocp.solver_options.nlp_solver_type = self.params.solver_type
         self.ocp.solver_options.hpipm_mode = self.params.solver_mode
         self.ocp.solver_options.nlp_solver_max_iter = self.params.nlp_max_iter
         self.ocp.solver_options.qp_solver_iter_max = self.params.qp_max_iter
         self.ocp.solver_options.globalization = self.params.globalization
-
-        # Additional settings, in general is an empty method
-        self.additionalSetting()
+        # self.ocp.solver_options.qp_solver_tol_stat = self.params.qp_tol_stat
+        # self.ocp.solver_options.nlp_solver_tol_stat = self.params.nlp_tol_stat
 
         gen_name = self.params.GEN_DIR + 'ocp_' + self.ocp_name + '_' + self.model.amodel.name
         self.ocp.code_export_directory = gen_name
@@ -245,41 +289,42 @@ class AbstractController:
         pass
 
     def terminalConstraint(self, soft=True):
-        # No dynamics (since acceleration is seen as input)
+        # Get the actual number of nl_constraints --> will be the index for the soft constraint
+        num_nl_e = len(self.nl_con_e)
+
         self.model.setNNmodel()
-        self.model.amodel.con_h_expr_e = self.model.nn_model
+        self.nl_con_e.append(self.model.nn_model)
 
         self.ocp.solver_options.model_external_shared_lib_dir = self.model.l4c_model.shared_lib_dir
         self.ocp.solver_options.model_external_shared_lib_name = self.model.l4c_model.name
 
-        self.ocp.constraints.lh_e = np.array([0.])
-        self.ocp.constraints.uh_e = np.array([1e6])
+        self.nl_lb_e.append(np.array([0.]))
+        self.nl_ub_e.append(np.array([1e6]))
 
         if soft:
-            self.ocp.constraints.idxsh_e = np.array([0])
+            self.ocp.constraints.idxsh_e = np.array([num_nl_e])
 
             self.ocp.cost.zl_e = np.array([self.params.ws_t])
-            self.ocp.cost.zu_e = np.array([1.])
-            self.ocp.cost.Zl_e = np.array([1.])
-            self.ocp.cost.Zu_e = np.array([1.])
+            self.ocp.cost.zu_e = np.array([0.])
+            self.ocp.cost.Zl_e = np.array([0.])
+            self.ocp.cost.Zu_e = np.array([0.])
 
     def runningConstraint(self, soft=True):
         # Suppose that the NN model is already set (same for external model shared lib)
-        # Need also to include the dynamics constraint
-        self.model.amodel.con_h_expr = vertcat(self.computed_torque, self.model.nn_model)
+        num_nl = len(self.nl_con)
+        self.nl_con.append(self.model.nn_model)
 
-        self.ocp.constraints.lh = np.hstack([self.model.tau_min, 0.])       
-        self.ocp.constraints.uh = np.hstack([self.model.tau_max, 1e6])       
+        self.nl_lb.append(np.array([0.]))
+        self.nl_ub.append(np.array([1e6]))      
 
         if soft:
-            # Skip the first nu constraints (dynamics)
-            self.ocp.constraints.idxsh = np.array([self.model.nu])
+            self.ocp.constraints.idxsh = np.array([num_nl])
 
             # Set zl initially to zero, then apply receding constraint in the step method
-            self.ocp.cost.zl = np.array([1.])
-            self.ocp.cost.zu = np.array([1.])
-            self.ocp.cost.Zl = np.array([1.])
-            self.ocp.cost.Zu = np.array([1.])
+            self.ocp.cost.zl = np.array([0.])
+            self.ocp.cost.zu = np.array([0.])
+            self.ocp.cost.Zl = np.array([0.])
+            self.ocp.cost.Zu = np.array([0.])
 
     def solve(self, x0):
         # Reset current iterate
@@ -289,18 +334,19 @@ class AbstractController:
         self.ocp_solver.constraints_set(0, "lbx", x0)
         self.ocp_solver.constraints_set(0, "ubx", x0)
 
-        y_ref = np.zeros(self.model.ny)
-        y_ref[:self.model.nx] = self.x_ref
+        y_ref = np.zeros((self.N + 1, self.model.ny))
+        # Minimize effort --> no x_ref
+        y_ref[:, :self.model.nx] = self.x_ref
         W = lin.block_diag(self.Q, self.R)
 
         for i in range(self.N):
             self.ocp_solver.set(i, 'x', self.x_guess[i])
             self.ocp_solver.set(i, 'u', self.u_guess[i])
-            self.ocp_solver.cost_set(i, 'yref', y_ref, api='new')
+            self.ocp_solver.cost_set(i, 'yref', y_ref[i], api='new')
             self.ocp_solver.cost_set(i, 'W', W, api='new')
 
         self.ocp_solver.set(self.N, 'x', self.x_guess[-1])
-        self.ocp_solver.cost_set(self.N, 'yref', y_ref[:self.model.nx], api='new')
+        self.ocp_solver.cost_set(self.N, 'yref', y_ref[-1,:self.model.nx], api='new')
         self.ocp_solver.cost_set(self.N, 'W', self.Q, api='new')
 
         # Solve the OCP
@@ -353,3 +399,13 @@ class AbstractController:
 
     def getLastViableState(self):
         return np.copy(self.x_viable)
+    
+    def resetHorizon(self, N):
+        self.N = N
+        if self.ocp_name == 'receding':
+            self.r = N
+        self.ocp_solver.set_new_time_steps(np.full(N, self.params.dt))
+        self.ocp_solver.update_qp_solver_cond_N(N)
+
+        self.x_temp = np.zeros((self.N + 1, self.model.nx))
+        self.u_temp = np.zeros((self.N, self.model.nu))
