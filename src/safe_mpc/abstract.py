@@ -87,9 +87,8 @@ class AdamModel:
         self.eps = params.state_tol
 
         # Target
-        self.x_ref = np.zeros(self.nx)
-        self.x_ref[:self.nq] = np.pi
-        self.x_ref[params.joint_target] = joint_upper[params.joint_target] - params.ubound_gap
+        self.x_ref = (self.x_min + self.x_max) / 2
+        self.x_ref[params.joint_target] = joint_upper[params.joint_target] + params.ubound_gap
 
         # NN model (viability constraint)
         self.l4c_model = None
@@ -99,6 +98,7 @@ class AdamModel:
         # Cartesian constraint
         self.t_loc = np.array([0., 0., 0.2])
         self.z_bounds = np.array([-0.25, 1e6])
+        self.obs_add = '_obs' if params.obs_flag else ''
 
     def checkStateConstraints(self, x):
         return np.all(np.logical_and(x >= self.x_min + self.eps, x <= self.x_max - self.eps))
@@ -131,7 +131,7 @@ class AdamModel:
     def setNNmodel(self):
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         model = NeuralNetwork(self.nx, (self.nx - 1) * 100, 1).to(device)
-        nn_data = torch.load(f'{self.params.NN_DIR}model_{self.nq}dof.pt')
+        nn_data = torch.load(f'{self.params.NN_DIR}model_{self.nq}dof{self.obs_add}.pt')
         model.load_state_dict(nn_data['model'])
 
         x_cp = deepcopy(self.x)
@@ -170,8 +170,8 @@ class AbstractController:
         self.Q = 1e-4 * np.eye(self.model.nx)
         self.R = 1e-4 * np.eye(self.model.nu)
         self.Q[0, 0] = 5e2
-        self.Q[2, 2] = 1e2
         self.Q[1, 1] = 1e2
+        # self.Q[2, 2] = 1e2
 
         self.ocp.cost.W = lin.block_diag(self.Q, self.R)
         self.ocp.cost.W_e = self.Q
@@ -251,8 +251,9 @@ class AbstractController:
         self.ocp.constraints.uh_0 = np.hstack(self.nl_ub)
         self.ocp.constraints.lh = np.hstack(self.nl_lb)
         self.ocp.constraints.uh = np.hstack(self.nl_ub)
-        self.ocp.constraints.lh_e = np.hstack(self.nl_lb_e)
-        self.ocp.constraints.uh_e = np.hstack(self.nl_ub_e)
+        if len(self.nl_con_e) > 0:
+            self.ocp.constraints.lh_e = np.hstack(self.nl_lb_e)
+            self.ocp.constraints.uh_e = np.hstack(self.nl_ub_e)
 
         # Solver options
         self.ocp.solver_options.integrator_type = "DISCRETE"
@@ -262,8 +263,8 @@ class AbstractController:
         self.ocp.solver_options.nlp_solver_max_iter = self.params.nlp_max_iter
         self.ocp.solver_options.qp_solver_iter_max = self.params.qp_max_iter
         self.ocp.solver_options.globalization = self.params.globalization
-        # self.ocp.solver_options.qp_solver_tol_stat = self.params.qp_tol_stat
-        # self.ocp.solver_options.nlp_solver_tol_stat = self.params.nlp_tol_stat
+        self.ocp.solver_options.qp_solver_tol_stat = self.params.qp_tol_stat
+        self.ocp.solver_options.nlp_solver_tol_stat = self.params.nlp_tol_stat
 
         gen_name = self.params.GEN_DIR + 'ocp_' + self.ocp_name + '_' + self.model.amodel.name
         self.ocp.code_export_directory = gen_name
