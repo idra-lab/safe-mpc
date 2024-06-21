@@ -81,8 +81,7 @@ if __name__ == '__main__':
 
     # Define the paramsiguration object, model, simulator and controller
     params = Parameters(args['system'], args['rti'])
-    # Set the safety margin
-    params.alpha = args['alpha']
+    params.build = args['build']
     model = AdamModel(params, n_dofs=args['dofs'])
     controller = getattr(controllers, available_controllers[args['controller']])(model)
     controller.setReference(model.x_ref)

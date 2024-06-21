@@ -57,7 +57,7 @@ class AdamModel:
         self.x = MX.sym("x", nq * 2)
         self.x_dot = MX.sym("x_dot", nq * 2)
         self.u = MX.sym("u", nq)
-        self.p = MX.sym("p", 1)
+        # Double integrator
         self.f_disc = vertcat(
             self.x[:nq] + params.dt * self.x[nq:] + 0.5 * params.dt**2 * self.u,
             self.x[nq:] + params.dt * self.u
@@ -66,13 +66,18 @@ class AdamModel:
         self.amodel.x = self.x
         self.amodel.u = self.u
         self.amodel.disc_dyn_expr = self.f_disc
-        self.amodel.p = self.p
 
         self.nx = self.amodel.x.size()[0]
         self.nu = self.amodel.u.size()[0]
         self.ny = self.nx + self.nu
         self.nq = nq
         self.nv = nq
+
+        # Real dynamics
+        H_b = np.eye(4)
+        self.tau = self.mass(H_b, self.x[:nq])[6:, 6:] @ self.u + \
+                   self.bias(H_b, self.x[:nq], np.zeros(6), self.x[nq:])[6:]
+        self.tau_fun = Function('tau', [self.x, self.u], [self.tau])
 
         # Joint limits
         joint_lower = np.array([joint.limit.lower for joint in robot_joints])
@@ -84,11 +89,10 @@ class AdamModel:
         self.tau_max = joint_effort
         self.x_min = np.hstack([joint_lower, - joint_velocity])
         self.x_max = np.hstack([joint_upper, joint_velocity])
-        self.eps = params.state_tol
 
         # Target
         self.x_ref = (self.x_min + self.x_max) / 2
-        self.x_ref[params.joint_target] = joint_upper[params.joint_target] + params.ubound_gap
+        self.x_ref[params.joint_target] = joint_upper[params.joint_target] - params.ubound_gap
 
         # NN model (viability constraint)
         self.l4c_model = None
@@ -101,16 +105,18 @@ class AdamModel:
         self.obs_add = '_obs' if params.obs_flag else ''
 
     def checkStateConstraints(self, x):
-        return np.all(np.logical_and(x >= self.x_min + self.eps, x <= self.x_max - self.eps))
+        return np.all(np.logical_and(x >= self.x_min + self.params.state_tol, 
+                                     x <= self.x_max - self.params.state_tol))
 
-    def checkControlConstraints(self, u):
-        return np.all(np.logical_and(u >= self.tau_min, u <= self.tau_max))
+    def checkTorqueConstraints(self, tau):
+        return np.all(np.logical_and(tau >= self.tau_min, tau <= self.tau_max))
 
     def checkRunningConstraints(self, x, u):
-        return self.checkStateConstraints(x) #and self.checkControlConstraints(u)
+        tau = np.array([self.tau_fun(x[i], u[i]) for i in range(len(u))])
+        return self.checkStateConstraints(x) and self.checkTorqueConstraints(tau)
 
     def checkSafeConstraints(self, x):
-        return self.nn_func(x, self.params.alpha) >= 0. 
+        return self.nn_func(x) >= 0. 
     
     def integrate(self, x, u):
         x_next = np.zeros(self.nx)
@@ -126,7 +132,7 @@ class AdamModel:
         for i in range(n):
             x_sim[i + 1] = self.integrate(x_sim[i], u[i])
         # Check if the rollout state trajectory is almost equal to the optimal one
-        return np.linalg.norm(x - x_sim) < self.eps * np.sqrt(n+1) 
+        return np.linalg.norm(x - x_sim) < self.params.dyn_tol * np.sqrt(n+1) 
     
     def setNNmodel(self):
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -135,7 +141,7 @@ class AdamModel:
         model.load_state_dict(nn_data['model'])
 
         x_cp = deepcopy(self.x)
-        x_cp[self.nq] += self.eps
+        x_cp[self.nq] += self.params.eps
         vel_norm = norm_2(x_cp[self.nq:])
         pos = (x_cp[:self.nq] - nn_data['mean']) / nn_data['std']
         vel_dir = x_cp[self.nq:] / vel_norm
@@ -145,9 +151,8 @@ class AdamModel:
                                       device='cuda',
                                       name=f'{self.amodel.name}_model',
                                       build_dir=f'{self.params.GEN_DIR}nn_{self.amodel.name}')
-        # TODO: try to simplify the expression, take only the function
-        self.nn_model = self.l4c_model(state) * (100 - self.p) / 100 - vel_norm
-        self.nn_func = Function('nn_func', [self.x, self.p], [self.nn_model])
+        self.nn_model = self.l4c_model(state) * (100 - self.params.alpha) / 100 - vel_norm
+        self.nn_func = Function('nn_func', [self.x], [self.nn_model])
 
 
 class AbstractController:
@@ -170,8 +175,6 @@ class AbstractController:
         self.Q = 1e-4 * np.eye(self.model.nx)
         self.R = 1e-4 * np.eye(self.model.nu)
         self.Q[0, 0] = 5e2
-        self.Q[1, 1] = 1e2
-        # self.Q[2, 2] = 1e2
 
         self.ocp.cost.W = lin.block_diag(self.Q, self.R)
         self.ocp.cost.W_e = self.Q
@@ -187,22 +190,6 @@ class AbstractController:
 
         self.ocp.cost.yref = np.zeros(self.model.ny)
         self.ocp.cost.yref_e = np.zeros(self.model.nx)
-        # Minimize effort
-        H_b = np.eye(4)
-        tau = self.model.mass(H_b, self.model.x[:self.model.nq])[6:, 6:] @ self.model.u + \
-              self.model.bias(H_b, self.model.x[:self.model.nq], np.zeros(6), self.model.x[self.model.nq:])[6:]
-        # self.Q = 5e-2 * np.eye(self.model.nx)
-        # self.R = 1e0 * np.eye(self.model.nu)
-
-        # self.ocp.cost.cost_type_0 = "EXTERNAL"
-        # self.ocp.cost.cost_type = "EXTERNAL"
-
-        # min_effort = self.model.x.T @ self.Q @ self.model.x + tau.T @ self.R @ tau 
-        # self.ocp.model.cost_expr_ext_cost_0 = min_effort
-        # self.ocp.model.cost_expr_ext_cost = min_effort
-
-        # Set alpha to zero as default
-        self.ocp.parameter_values = np.array([0.])
 
         # Constraints
         self.ocp.constraints.lbx_0 = self.model.x_min
@@ -218,19 +205,24 @@ class AbstractController:
         self.ocp.constraints.idxbx_e = np.arange(self.model.nx)
         
         # Nonlinear constraint
+        self.nl_con_0 = []
+        self.nl_lb_0, self.nl_ub_0 = [], []
         self.nl_con, self.nl_con_e = [], []
         self.nl_lb, self.nl_lb_e = [], []
         self.nl_ub, self.nl_ub_e = [], []
         
         # --> dynamics (only on running nodes)
+        self.nl_con_0.append(self.model.tau)
+        self.nl_lb_0.append(self.model.tau_min)
+        self.nl_ub_0.append(self.model.tau_max)
         
-        self.nl_con.append(tau)
+        self.nl_con.append(self.model.tau)
         self.nl_lb.append(self.model.tau_min)
         self.nl_ub.append(self.model.tau_max)
         
         # --> collision (both on running and terminal nodes)
         if self.params.obs_flag:
-            T_ee = self.model.fk(H_b, self.model.x[:self.model.nq]) 
+            T_ee = self.model.fk(np.eye(4), self.model.x[:self.model.nq]) 
             T_ee[:3, 3] += T_ee[:3, :3] @ self.model.t_loc
             self.nl_con.append(T_ee[2, 3])
             self.nl_con_e.append(T_ee[2, 3])
@@ -243,12 +235,12 @@ class AbstractController:
         # Additional settings, in general is an empty method
         self.additionalSetting()
 
-        self.model.amodel.con_h_expr_0 = vertcat(*self.nl_con)   
+        self.model.amodel.con_h_expr_0 = vertcat(*self.nl_con_0)   
         self.model.amodel.con_h_expr = vertcat(*self.nl_con)
         self.model.amodel.con_h_expr_e = vertcat(*self.nl_con_e)
         
-        self.ocp.constraints.lh_0 = np.hstack(self.nl_lb)
-        self.ocp.constraints.uh_0 = np.hstack(self.nl_ub)
+        self.ocp.constraints.lh_0 = np.hstack(self.nl_lb_0)
+        self.ocp.constraints.uh_0 = np.hstack(self.nl_ub_0)
         self.ocp.constraints.lh = np.hstack(self.nl_lb)
         self.ocp.constraints.uh = np.hstack(self.nl_ub)
         if len(self.nl_con_e) > 0:
@@ -257,18 +249,18 @@ class AbstractController:
 
         # Solver options
         self.ocp.solver_options.integrator_type = "DISCRETE"
-        self.ocp.solver_options.hessian_approx = "EXACT"
+        # self.ocp.solver_options.hessian_approx = "EXACT"
         self.ocp.solver_options.nlp_solver_type = self.params.solver_type
         self.ocp.solver_options.hpipm_mode = self.params.solver_mode
         self.ocp.solver_options.nlp_solver_max_iter = self.params.nlp_max_iter
         self.ocp.solver_options.qp_solver_iter_max = self.params.qp_max_iter
         self.ocp.solver_options.globalization = self.params.globalization
-        self.ocp.solver_options.qp_solver_tol_stat = self.params.qp_tol_stat
-        self.ocp.solver_options.nlp_solver_tol_stat = self.params.nlp_tol_stat
+        # self.ocp.solver_options.qp_solver_tol_stat = self.params.qp_tol_stat
+        # self.ocp.solver_options.nlp_solver_tol_stat = self.params.nlp_tol_stat
 
         gen_name = self.params.GEN_DIR + 'ocp_' + self.ocp_name + '_' + self.model.amodel.name
         self.ocp.code_export_directory = gen_name
-        self.ocp_solver = AcadosOcpSolver(self.ocp, json_file=gen_name + '.json', build=self.params.regenerate)
+        self.ocp_solver = AcadosOcpSolver(self.ocp, json_file=gen_name + '.json', build=self.params.build)
 
         # Reference and fails counter
         self.fails = 0
@@ -319,7 +311,10 @@ class AbstractController:
         self.nl_ub.append(np.array([1e6]))      
 
         if soft:
-            self.ocp.constraints.idxsh = np.array([num_nl])
+            self.ocp.constraints.idxsh = np.array([num_nl+1])
+            # TODO: +1 works only for nu = 2, such that 
+            # 3 dimensional run constraints, indexes 0 --> tau joint 1, 1 --> tau joint 2, 2 --> NN model
+            # so num_nl = 1, num_nl+1 = 2 --> right index for the soft constraint 
 
             # Set zl initially to zero, then apply receding constraint in the step method
             self.ocp.cost.zl = np.array([0.])
@@ -336,7 +331,6 @@ class AbstractController:
         self.ocp_solver.constraints_set(0, "ubx", x0)
 
         y_ref = np.zeros((self.N + 1, self.model.ny))
-        # Minimize effort --> no x_ref
         y_ref[:, :self.model.nx] = self.x_ref
         W = lin.block_diag(self.Q, self.R)
 

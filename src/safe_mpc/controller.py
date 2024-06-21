@@ -27,8 +27,8 @@ class NaiveController(AbstractController):
 
     def step(self, x):
         status = self.solve(x)
-        if status == 0 and self.model.checkControlConstraints(self.u_temp[0]): #and \
-        #    self.simulator.checkDynamicsConstraints(self.x_temp[:2], np.array([self.u_temp[0]])):
+        tau = self.model.tau_fun(x, self.u_temp[0])
+        if status == 0 and self.model.checkTorqueConstraints(tau): 
             self.fails = 0
         else:
             self.fails += 1
@@ -55,7 +55,6 @@ class STWAController(STController):
 
     def step(self, x):
         status = self.solve(x)
-        # TODO: verify if dynamics must be checked
         if status == 0 and self.model.checkRunningConstraints(self.x_temp, self.u_temp) and \
                 self.model.checkSafeConstraints(self.x_temp[-1]):
             self.fails = 0
