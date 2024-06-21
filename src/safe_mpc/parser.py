@@ -12,14 +12,14 @@ def parse_args():
                         help='Number of desired degrees of freedom of the system')
     parser.add_argument('-c', '--controller', type=str, default='naive',
                         help='Controllers to test. Available: naive, st, stwa, htwa, receding')
+    parser.add_argument('-b', '--build', action='store_true',
+                        help='Build the code of the embedded controller')
     parser.add_argument('-i', '--init-conditions', action='store_true',
                         help='Find the initial conditions for testing all the controller')
     parser.add_argument('-g', '--guess', action='store_true',
                         help='Compute the initial guess of a given controller')
     parser.add_argument('--rti', action='store_true',
                         help='Use SQP-RTI for the MPC solver')
-    parser.add_argument('--alpha', type=int, default=2,
-                        help='Safety margin for the NN model')
     parser.add_argument('-a', '--abort', type=str, default=None,
                         help='Define the MPC formulation for which the abort controller is tested. '
                              'Available: stwa, htwa, receding')
@@ -52,7 +52,7 @@ class Parameters:
         self.test_num = int(parameters['test_num'])
         self.n_steps = int(parameters['n_steps'])
         self.cpu_num = int(parameters['cpu_num'])
-        self.regenerate = bool(parameters['regenerate'])
+        self.build = False
         
         self.T = float(parameters['T'])
         self.dt = float(parameters['dt'])
@@ -69,6 +69,8 @@ class Parameters:
         self.levenberg_marquardt = float(parameters['levenberg_marquardt'])
 
         self.state_tol = float(parameters['state_tol'])
+        self.dyn_tol = float(parameters['dyn_tol'])
+        self.eps = float(parameters['eps'])
         self.conv_tol = float(parameters['conv_tol'])
         self.cost_tol = float(parameters['cost_tol'])
         self.globalization = 'FIXED_STEP' if rti else 'MERIT_BACKTRACKING'
