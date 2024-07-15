@@ -62,8 +62,6 @@ class Parameters:
         self.solver_mode = parameters['solver_mode']
         self.nlp_max_iter = int(parameters['nlp_max_iter'])
         self.qp_max_iter = int(parameters['qp_max_iter'])
-        self.qp_tol_stat = float(parameters['qp_tol_stat'])
-        self.nlp_tol_stat = float(parameters['nlp_tol_stat'])
         self.alpha_reduction = float(parameters['alpha_reduction'])
         self.alpha_min = float(parameters['alpha_min'])
         self.levenberg_marquardt = float(parameters['levenberg_marquardt'])
@@ -83,4 +81,4 @@ class Parameters:
 
         # For cartesian constraint
         self.obs_flag = bool(parameters['obs_flag'])
-        self.frame_name = 'link2'       #  TODO: dependence on the robot
+        self.frame_name = 'gripperMover'       #  TODO: dependence on the robot
