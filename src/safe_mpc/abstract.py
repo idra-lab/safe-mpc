@@ -15,7 +15,6 @@ import l4casadi as l4c
 class NeuralNetwork(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, activation=nn.ReLU()):
         super().__init__()
-        # TODO: name of stack must match the one in the training script
         self.linear_stack = nn.Sequential(
             nn.Linear(input_size, hidden_size),
             activation,
@@ -57,6 +56,7 @@ class AdamModel:
         self.x = MX.sym("x", nq * 2)
         self.x_dot = MX.sym("x_dot", nq * 2)
         self.u = MX.sym("u", nq)
+        self.p = MX.sym("p", 3)     # Cartesian EE position
         # Double integrator
         self.f_disc = vertcat(
             self.x[:nq] + params.dt * self.x[nq:] + 0.5 * params.dt**2 * self.u,
@@ -66,12 +66,14 @@ class AdamModel:
         self.amodel.x = self.x
         self.amodel.u = self.u
         self.amodel.disc_dyn_expr = self.f_disc
+        self.amodel.p = self.p
 
         self.nx = self.amodel.x.size()[0]
         self.nu = self.amodel.u.size()[0]
         self.ny = self.nx + self.nu
         self.nq = nq
         self.nv = nq
+        self.np = self.amodel.p.size()[0]
 
         # Real dynamics
         H_b = np.eye(4)
@@ -93,6 +95,8 @@ class AdamModel:
         # Target
         self.x_ref = (self.x_min + self.x_max) / 2
         self.x_ref[params.joint_target] = joint_upper[params.joint_target] - params.ubound_gap
+        # EE target
+        self.ee_ref = np.ones(3) * 0.2
 
         # NN model (viability constraint)
         self.l4c_model = None
@@ -172,24 +176,19 @@ class AbstractController:
         self.ocp.model = self.model.amodel
 
         # Cost
-        self.Q = 1e-4 * np.eye(self.model.nx)
+        self.Q = 5 * np.eye(self.model.np)
         self.R = 1e-4 * np.eye(self.model.nu)
-        self.Q[0, 0] = 5e2
 
-        self.ocp.cost.W = lin.block_diag(self.Q, self.R)
-        self.ocp.cost.W_e = self.Q
+        self.ocp.cost.cost_type = 'EXTERNAL'
+        self.ocp.cost.cost_type_e = 'EXTERNAL'
 
-        self.ocp.cost.cost_type = "LINEAR_LS"
-        self.ocp.cost.cost_type_e = "LINEAR_LS"
-
-        self.ocp.cost.Vx = np.zeros((self.model.ny, self.model.nx))
-        self.ocp.cost.Vx[:self.model.nx, :self.model.nx] = np.eye(self.model.nx)
-        self.ocp.cost.Vu = np.zeros((self.model.ny, self.model.nu))
-        self.ocp.cost.Vu[self.model.nx:, :self.model.nu] = np.eye(self.model.nu)
-        self.ocp.cost.Vx_e = np.eye(self.model.nx)
-
-        self.ocp.cost.yref = np.zeros(self.model.ny)
-        self.ocp.cost.yref_e = np.zeros(self.model.nx)
+        T_ee = self.model.fk(np.eye(4), self.model.x[:self.model.nq])
+        t_glob = T_ee[:3, 3] + T_ee[:3, :3] @ self.model.t_loc
+        delta = t_glob - self.model.p
+        track_ee = delta.T @ self.Q @ delta 
+        self.ocp.model.cost_expr_ext_cost = track_ee + self.model.u.T @ self.R @ self.model.u
+        self.ocp.model.cost_expr_ext_cost_e = track_ee
+        self.ocp.parameter_values = np.zeros(self.model.np)
 
         # Constraints
         self.ocp.constraints.lbx_0 = self.model.x_min
@@ -249,14 +248,14 @@ class AbstractController:
 
         # Solver options
         self.ocp.solver_options.integrator_type = "DISCRETE"
-        # self.ocp.solver_options.hessian_approx = "EXACT"
+        self.ocp.solver_options.hessian_approx = "EXACT"
+        self.ocp.solver_options.exact_hess_constr = 0
+        self.ocp.solver_options.exact_hess_dyn = 0   
         self.ocp.solver_options.nlp_solver_type = self.params.solver_type
         self.ocp.solver_options.hpipm_mode = self.params.solver_mode
         self.ocp.solver_options.nlp_solver_max_iter = self.params.nlp_max_iter
         self.ocp.solver_options.qp_solver_iter_max = self.params.qp_max_iter
         self.ocp.solver_options.globalization = self.params.globalization
-        # self.ocp.solver_options.qp_solver_tol_stat = self.params.qp_tol_stat
-        # self.ocp.solver_options.nlp_solver_tol_stat = self.params.nlp_tol_stat
 
         gen_name = self.params.GEN_DIR + 'ocp_' + self.ocp_name + '_' + self.model.amodel.name
         self.ocp.code_export_directory = gen_name
@@ -330,19 +329,13 @@ class AbstractController:
         self.ocp_solver.constraints_set(0, "lbx", x0)
         self.ocp_solver.constraints_set(0, "ubx", x0)
 
-        y_ref = np.zeros((self.N + 1, self.model.ny))
-        y_ref[:, :self.model.nx] = self.x_ref
-        W = lin.block_diag(self.Q, self.R)
-
         for i in range(self.N):
             self.ocp_solver.set(i, 'x', self.x_guess[i])
             self.ocp_solver.set(i, 'u', self.u_guess[i])
-            self.ocp_solver.cost_set(i, 'yref', y_ref[i], api='new')
-            self.ocp_solver.cost_set(i, 'W', W, api='new')
+            self.ocp_solver.set(i, 'p', self.model.ee_ref)
 
         self.ocp_solver.set(self.N, 'x', self.x_guess[-1])
-        self.ocp_solver.cost_set(self.N, 'yref', y_ref[-1,:self.model.nx], api='new')
-        self.ocp_solver.cost_set(self.N, 'W', self.Q, api='new')
+        self.ocp_solver.set(self.N, 'p', self.model.ee_ref)
 
         # Solve the OCP
         status = self.ocp_solver.solve()
@@ -375,12 +368,8 @@ class AbstractController:
     def step(self, x0):
         pass
 
-    def setQRWeights(self, Q, R):
-        self.Q = Q
-        self.R = R
-
-    def setReference(self, x_ref):
-        self.x_ref = x_ref
+    def setReference(self, ee_ref):
+        self.model.ee_ref = ee_ref
 
     def getTime(self):
         return np.array([self.ocp_solver.get_stats(field) for field in self.time_fields])
