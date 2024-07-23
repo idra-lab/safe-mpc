@@ -4,12 +4,13 @@ from .abstract import AbstractController
 
 
 class NaiveController(AbstractController):
-    def __init__(self, model):
-        super().__init__(model)
+    def __init__(self, model, obstacles=None):
+        super().__init__(model, obstacles)
 
     def checkGuess(self):
         return self.model.checkRunningConstraints(self.x_temp, self.u_temp) and \
-               self.model.checkDynamicsConstraints(self.x_temp, self.u_temp)
+               self.model.checkDynamicsConstraints(self.x_temp, self.u_temp) and \
+               np.all([self.checkCollision(x) for x in self.x_temp])
 
     def initialize(self, x0, u0=None):
         # Trivial guess
@@ -27,7 +28,7 @@ class NaiveController(AbstractController):
 
     def step(self, x):
         status = self.solve(x)
-        tau = self.model.tau_fun(x, self.u_temp[0])
+        tau = np.array(self.model.tau_fun(x, self.u_temp[0]))
         if status == 0 and self.model.checkTorqueConstraints(tau): 
             self.fails = 0
         else:
@@ -36,25 +37,27 @@ class NaiveController(AbstractController):
 
 
 class STController(NaiveController):
-    def __init__(self, model):
-        super().__init__(model)
+    def __init__(self, model, obstacles):
+        super().__init__(model, obstacles)
 
     def additionalSetting(self):
         self.terminalConstraint()
 
 
 class STWAController(STController):
-    def __init__(self, model):
-        super().__init__(model)
+    def __init__(self, model, obstacles):
+        super().__init__(model, obstacles)
         self.x_viable = None
 
     def checkGuess(self):
         return self.model.checkRunningConstraints(self.x_temp, self.u_temp) and \
                self.model.checkDynamicsConstraints(self.x_temp, self.u_temp) and \
-               self.model.checkSafeConstraints(self.x_temp[-1])
+               self.model.checkSafeConstraints(self.x_temp[-1]) and \
+                np.all([self.checkCollision(x) for x in self.x_temp])
 
     def step(self, x):
         status = self.solve(x)
+        # TODO: check collisions
         if status == 0 and self.model.checkRunningConstraints(self.x_temp, self.u_temp) and \
                 self.model.checkSafeConstraints(self.x_temp[-1]):
             self.fails = 0
@@ -66,7 +69,6 @@ class STWAController(STController):
             self.fails += 1
         return self.provideControl()
 
-    # TODO: check if this is called somewhere
     def setGuess(self, x_guess, u_guess):
         self.x_guess = x_guess
         self.u_guess = u_guess
@@ -74,16 +76,16 @@ class STWAController(STController):
 
 
 class HTWAController(STWAController):
-    def __init__(self, model):
-        super().__init__(model)
+    def __init__(self, model, obstacles):
+        super().__init__(model, obstacles)
 
     def additionalSetting(self):
         self.terminalConstraint(soft=False)
 
 
 class RecedingController(STWAController):
-    def __init__(self, model):
-        super().__init__(model)
+    def __init__(self, model, obstacles):
+        super().__init__(model, obstacles)
         self.r = self.N
 
     def additionalSetting(self):

@@ -81,6 +81,12 @@ class AdamModel:
                    self.bias(H_b, self.x[:nq], np.zeros(6), self.x[nq:])[6:]
         self.tau_fun = Function('tau', [self.x, self.u], [self.tau])
 
+        # EE position (global frame)
+        T_ee = self.fk(np.eye(4), self.x[:nq])
+        self.t_loc = np.array([0.035, 0., 0.])
+        self.t_glob = T_ee[:3, 3] + T_ee[:3, :3] @ self.t_loc
+        self.ee_fun = Function('ee_fun', [self.x], [self.t_glob])
+
         # Joint limits
         joint_lower = np.array([joint.limit.lower for joint in robot_joints])
         joint_upper = np.array([joint.limit.upper for joint in robot_joints])
@@ -92,21 +98,19 @@ class AdamModel:
         self.x_min = np.hstack([joint_lower, - joint_velocity])
         self.x_max = np.hstack([joint_upper, joint_velocity])
 
-        # Target
-        self.x_ref = (self.x_min + self.x_max) / 2
-        self.x_ref[params.joint_target] = joint_upper[params.joint_target] - params.ubound_gap
         # EE target
-        self.ee_ref = np.ones(3) * 0.2
+        self.ee_ref = self.jointToEE(np.zeros(self.nx))
 
         # NN model (viability constraint)
         self.l4c_model = None
         self.nn_model = None
         self.nn_func = None
 
-        # Cartesian constraint
-        self.t_loc = np.array([0., 0., 0.2])
-        self.z_bounds = np.array([-0.25, 1e6])
+        # Cartesian constraints
         self.obs_add = '_obs' if params.obs_flag else ''
+
+    def jointToEE(self, x):
+        return np.array(self.ee_fun(x))
 
     def checkStateConstraints(self, x):
         return np.all(np.logical_and(x >= self.x_min + self.params.state_tol, 
@@ -160,10 +164,11 @@ class AdamModel:
 
 
 class AbstractController:
-    def __init__(self, model):
+    def __init__(self, model, obstacles=None):
         self.ocp_name = "".join(re.findall('[A-Z][^A-Z]*', self.__class__.__name__)[:-1]).lower()
         self.params = model.params
         self.model = model
+        self.obstacles = obstacles
 
         self.N = int(self.params.T / self.params.dt)
         self.ocp = AcadosOcp()
@@ -176,14 +181,13 @@ class AbstractController:
         self.ocp.model = self.model.amodel
 
         # Cost
-        self.Q = 5 * np.eye(self.model.np)
-        self.R = 1e-4 * np.eye(self.model.nu)
+        self.Q = 1e2 * np.eye(self.model.np)
+        self.R = 5e-3 * np.eye(self.model.nu)
 
         self.ocp.cost.cost_type = 'EXTERNAL'
         self.ocp.cost.cost_type_e = 'EXTERNAL'
 
-        T_ee = self.model.fk(np.eye(4), self.model.x[:self.model.nq])
-        t_glob = T_ee[:3, 3] + T_ee[:3, :3] @ self.model.t_loc
+        t_glob = self.model.t_glob
         delta = t_glob - self.model.p
         track_ee = delta.T @ self.Q @ delta 
         self.ocp.model.cost_expr_ext_cost = track_ee + self.model.u.T @ self.R @ self.model.u
@@ -220,29 +224,37 @@ class AbstractController:
         self.nl_ub.append(self.model.tau_max)
         
         # --> collision (both on running and terminal nodes)
-        if self.params.obs_flag:
-            T_ee = self.model.fk(np.eye(4), self.model.x[:self.model.nq]) 
-            T_ee[:3, 3] += T_ee[:3, :3] @ self.model.t_loc
-            self.nl_con.append(T_ee[2, 3])
-            self.nl_con_e.append(T_ee[2, 3])
-
-            self.nl_lb.append(self.model.z_bounds[0])
-            self.nl_ub.append(self.model.z_bounds[1])
-            self.nl_lb_e.append(self.model.z_bounds[0])
-            self.nl_ub_e.append(self.model.z_bounds[1])
+        if obstacles is not None and self.params.obs_flag:
+            # Collision avoidance with two obstacles
+            for obs in self.obstacles:
+                if obs['name'] == 'floor':
+                    self.nl_con.append(t_glob[2])
+                    self.nl_con_e.append(t_glob[2])
+                    self.nl_lb.append(obs['bounds'][0])
+                    self.nl_ub.append(obs['bounds'][1])
+                    self.nl_lb_e.append(obs['bounds'][0])
+                    self.nl_ub_e.append(obs['bounds'][1])
+                elif obs['name'] == 'ball':
+                    dist_b = (t_glob - obs['position']).T @ (t_glob - obs['position'])
+                    self.nl_con.append(dist_b)
+                    self.nl_con_e.append(dist_b)
+                    self.nl_lb.append(obs['bounds'][0])
+                    self.nl_ub.append(obs['bounds'][1])
+                    self.nl_lb_e.append(obs['bounds'][0])
+                    self.nl_ub_e.append(obs['bounds'][1])
 
         # Additional settings, in general is an empty method
         self.additionalSetting()
 
         self.model.amodel.con_h_expr_0 = vertcat(*self.nl_con_0)   
         self.model.amodel.con_h_expr = vertcat(*self.nl_con)
-        self.model.amodel.con_h_expr_e = vertcat(*self.nl_con_e)
         
         self.ocp.constraints.lh_0 = np.hstack(self.nl_lb_0)
         self.ocp.constraints.uh_0 = np.hstack(self.nl_ub_0)
         self.ocp.constraints.lh = np.hstack(self.nl_lb)
         self.ocp.constraints.uh = np.hstack(self.nl_ub)
         if len(self.nl_con_e) > 0:
+            self.model.amodel.con_h_expr_e = vertcat(*self.nl_con_e)
             self.ocp.constraints.lh_e = np.hstack(self.nl_lb_e)
             self.ocp.constraints.uh_e = np.hstack(self.nl_ub_e)
 
@@ -383,6 +395,19 @@ class AbstractController:
 
     def getLastViableState(self):
         return np.copy(self.x_viable)
+    
+    def checkCollision(self, x):
+        if self.obstacles is not None and self.params.obs_flag:
+            t_glob = self.model.jointToEE(x) 
+            for obs in self.obstacles:
+                if obs['name'] == 'floor':
+                    if t_glob[2] < obs['bounds'][0]:
+                        return False
+                elif obs['name'] == 'ball':
+                    dist_b = np.sum((t_glob - obs['position']) ** 2)
+                    if dist_b < obs['bounds'][0]:
+                        return False
+        return True
     
     def resetHorizon(self, N):
         self.N = N
