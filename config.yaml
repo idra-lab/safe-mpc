@@ -8,7 +8,7 @@ alpha: 1.                 # safety margin
 
 solver_mode: 'ROBUST'     # HPIPM mode, can be --> 'BALANCE', 'ROBUST', 'SPEED', 'SPEED_ABS'
 nlp_max_iter: 200
-qp_max_iter: 100
+qp_max_iter: 200
 alpha_reduction: 0.3
 alpha_min: 1e-2
 levenberg_marquardt: 1e-5
@@ -19,8 +19,6 @@ eps: 1e-6                 # for numerical stability in NN function
 conv_tol: 1e-3            # convergence tolerance for the task
 cost_tol: 1e-3            # Tolerance for the cost
 
-joint_target: 0
-ubound_gap: 5e-2
 q_dot_gain: 1e4
 ws_t: 1e4
 ws_r: 1e4

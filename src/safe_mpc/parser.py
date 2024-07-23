@@ -73,8 +73,6 @@ class Parameters:
         self.cost_tol = float(parameters['cost_tol'])
         self.globalization = 'FIXED_STEP' if rti else 'MERIT_BACKTRACKING'
 
-        self.joint_target = int(parameters['joint_target'])
-        self.ubound_gap = float(parameters['ubound_gap'])
         self.q_dot_gain = float(parameters['q_dot_gain'])
         self.ws_t = float(parameters['ws_t'])
         self.ws_r = float(parameters['ws_r'])
@@ -82,3 +80,6 @@ class Parameters:
         # For cartesian constraint
         self.obs_flag = bool(parameters['obs_flag'])
         self.frame_name = 'gripperMover'       #  TODO: dependence on the robot
+
+        self.box_lb = np.array([0.25, -0.55, 0.])
+        self.box_ub = np.array([0.55, -0.25, 0.3])
