@@ -2,6 +2,8 @@ import time
 import meshcat
 import numpy as np
 import pinocchio as pin
+from .abstract import AbstractController
+from .controller import *
 
 
 ### OBSTACLES ###
@@ -10,6 +12,7 @@ ee_ref = np.array([0.6, 0.28, 0.078])
 
 obs = dict()
 obs['name'] = 'floor'
+obs['type'] = 'box'
 obs['dimensions'] = [2, 2, 1e-3]
 obs['color'] = [0, 0, 1, 1]
 obs['position'] = np.array([0., 0., 0.])
@@ -19,14 +22,29 @@ obstacles = [obs]
 
 obs = dict()
 obs['name'] = 'ball'
+obs['type'] = 'sphere'
 obs['radius'] = 0.12
 obs['color'] = [0, 1, 1, 1]
-obs['position'] = np.array([0.5, 0., 0.12])
+obs['position'] = np.array([0.6, 0., 0.12])
 T_ball = np.eye(4)
 T_ball[:3, 3] = obs['position']
 obs['transform'] = T_ball
 obs['bounds'] = np.array([(ee_radius + obs['radius']) ** 2, 1e6])     
 obstacles.append(obs)
+
+
+### METHODS ###
+
+def get_controller(cont_name, model, obstacles) -> AbstractController:
+    controllers = { 'naive': NaiveController,
+                    'st': STController,
+                    'stwa': STWAController,
+                    'htwa': HTWAController,
+                    'receding': RecedingController }
+    if cont_name in controllers:
+        return controllers[cont_name](model, obstacles)
+    else:
+        raise ValueError(f'Controller {cont_name} not available')
 
 
 ### VISUALIZER ###
