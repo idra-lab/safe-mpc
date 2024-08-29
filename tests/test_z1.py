@@ -32,8 +32,8 @@ flag_mpc = False
 
 
 if rti:
-    x_guess = np.load('x_guess.npy')
-    u_guess = np.load('u_guess.npy')
+    x_guess = np.load('data/x_guess.npy')
+    u_guess = np.load('data/u_guess.npy')
     fk = Function('fk', [model.x], [model.fk(np.eye(4), model.x[:model.nq])]) 
 
     x_sim = np.empty((params.n_steps + 1, model.nx)) * np.nan
@@ -65,8 +65,8 @@ else:
     if flag:
         print('\nSuccess!\n')
         x_guess, u_guess = controller.getGuess()
-        np.save('x_guess.npy', x_guess)
-        np.save('u_guess.npy', u_guess)
+        np.save('data/x_guess.npy', x_guess)
+        np.save('data/u_guess.npy', u_guess)
 
     else:
         print('\nFailed!\n')
