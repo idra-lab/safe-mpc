@@ -1,20 +1,22 @@
 test_num: 100             # number of tests
-n_steps: 500              # number of time steps in each test
+n_steps: 800              # number of time steps in each test
 cpu_num: 24
 
-T: 0.3                    # horizon in seconds
-dt: 1e-2                  # time step
-alpha: 1.                 # safety margin 
+N: 45                     # horizon length --> 42 
+dt: 5e-3                  # time step
+alpha: 6.                 # safety margin 
 
 solver_mode: 'ROBUST'     # HPIPM mode, can be --> 'BALANCE', 'ROBUST', 'SPEED', 'SPEED_ABS'
-nlp_max_iter: 200
+nlp_max_iter: 500
 qp_max_iter: 200
 alpha_reduction: 0.3
 alpha_min: 1e-2
 levenberg_marquardt: 1e-5
 
 state_tol: 0.             # state tolerance
-dyn_tol: 1e-3             # dynamics tolerance
+tau_tol: 1e-6             # torque tolerance
+dyn_tol: 1e-6             # dynamics tolerance
+obs_tol: 1e-8             # obstacle tolerance
 eps: 1e-6                 # for numerical stability in NN function 
 conv_tol: 1e-3            # convergence tolerance for the task
 cost_tol: 1e-3            # Tolerance for the cost
@@ -23,4 +25,4 @@ q_dot_gain: 1e4
 ws_t: 1e4
 ws_r: 1e4
 
-obs_flag: false           # activation of Cartesian constraints
+obs_flag: true           # activation of Cartesian constraints

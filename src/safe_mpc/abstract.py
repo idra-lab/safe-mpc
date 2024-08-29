@@ -1,7 +1,6 @@
 import re
 import numpy as np
 from copy import deepcopy
-import scipy.linalg as lin
 from urdf_parser_py.urdf import URDF
 import adam
 from adam.casadi import KinDynComputations
@@ -17,6 +16,8 @@ class NeuralNetwork(nn.Module):
         super().__init__()
         self.linear_stack = nn.Sequential(
             nn.Linear(input_size, hidden_size),
+            activation,
+            nn.Linear(hidden_size, hidden_size),
             activation,
             nn.Linear(hidden_size, hidden_size),
             activation,
@@ -91,7 +92,8 @@ class AdamModel:
         joint_lower = np.array([joint.limit.lower for joint in robot_joints])
         joint_upper = np.array([joint.limit.upper for joint in robot_joints])
         joint_velocity = np.array([joint.limit.velocity for joint in robot_joints]) 
-        joint_effort = np.array([joint.limit.effort for joint in robot_joints]) 
+        # joint_effort = np.array([joint.limit.effort for joint in robot_joints]) 
+        joint_effort = np.array([2., 23., 10., 4.])
 
         self.tau_min = - joint_effort
         self.tau_max = joint_effort
@@ -113,14 +115,17 @@ class AdamModel:
         return np.array(self.ee_fun(x))
 
     def checkStateConstraints(self, x):
-        return np.all(np.logical_and(x >= self.x_min + self.params.state_tol, 
-                                     x <= self.x_max - self.params.state_tol))
+        return np.all(np.logical_and(x >= self.x_min - self.params.state_tol, 
+                                     x <= self.x_max + self.params.state_tol))
 
     def checkTorqueConstraints(self, tau):
-        return np.all(np.logical_and(tau >= self.tau_min, tau <= self.tau_max))
+        # for i in range(len(tau)):
+        #     print(f' Iter {i} : {self.tau_max - np.abs(tau[i].flatten())}')
+        return np.all(np.logical_and(tau >= self.tau_min - self.params.tau_tol, 
+                                     tau <= self.tau_max + self.params.tau_tol))
 
     def checkRunningConstraints(self, x, u):
-        tau = np.array([self.tau_fun(x[i], u[i]) for i in range(len(u))])
+        tau = np.array([self.tau_fun(x[i], u[i]).T for i in range(len(u))])
         return self.checkStateConstraints(x) and self.checkTorqueConstraints(tau)
 
     def checkSafeConstraints(self, x):
@@ -128,6 +133,14 @@ class AdamModel:
     
     def integrate(self, x, u):
         x_next = np.zeros(self.nx)
+        tau = np.array(self.tau_fun(x, u).T)
+        if not self.checkTorqueConstraints(tau):
+            # Cannot exceed the torque limits --> sat and compute forward dynamics on real system 
+            H_b = np.eye(4)
+            tau_sat = np.clip(tau, self.tau_min, self.tau_max)
+            M = np.array(self.mass(H_b, x[:self.nq])[6:, 6:])
+            h = np.array(self.bias(H_b, x[:self.nq], np.zeros(6), x[self.nq:])[6:])
+            u = np.linalg.solve(M, (tau_sat.T - h)).T
         x_next[:self.nq] = x[:self.nq] + self.params.dt * x[self.nq:] + 0.5 * self.params.dt**2 * u
         x_next[self.nq:] = x[self.nq:] + self.params.dt * u
         return x_next
@@ -144,7 +157,8 @@ class AdamModel:
     
     def setNNmodel(self):
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        model = NeuralNetwork(self.nx, (self.nx - 1) * 100, 1).to(device)
+        # model = NeuralNetwork(self.nx, (self.nx - 1) * 100, 1).to(device)
+        model = NeuralNetwork(self.nx, 512, 1).to(device)
         nn_data = torch.load(f'{self.params.NN_DIR}model_{self.nq}dof{self.obs_add}.pt')
         model.load_state_dict(nn_data['model'])
 
@@ -170,11 +184,11 @@ class AbstractController:
         self.model = model
         self.obstacles = obstacles
 
-        self.N = int(self.params.T / self.params.dt)
+        self.N = self.params.N
         self.ocp = AcadosOcp()
 
         # Dimensions
-        self.ocp.solver_options.tf = self.params.T
+        self.ocp.solver_options.tf = self.params.dt * self.N
         self.ocp.dims.N = self.N
 
         # Model
@@ -208,11 +222,9 @@ class AbstractController:
         self.ocp.constraints.idxbx_e = np.arange(self.model.nx)
         
         # Nonlinear constraint
-        self.nl_con_0 = []
-        self.nl_lb_0, self.nl_ub_0 = [], []
-        self.nl_con, self.nl_con_e = [], []
-        self.nl_lb, self.nl_lb_e = [], []
-        self.nl_ub, self.nl_ub_e = [], []
+        self.nl_con_0, self.nl_lb_0, self.nl_ub_0 = [], [], []
+        self.nl_con, self.nl_lb, self.nl_ub = [], [], []
+        self.nl_con_e, self.nl_lb_e, self.nl_ub_e = [], [], []
         
         # --> dynamics (only on running nodes)
         self.nl_con_0.append(self.model.tau)
@@ -228,16 +240,24 @@ class AbstractController:
             # Collision avoidance with two obstacles
             for obs in self.obstacles:
                 if obs['name'] == 'floor':
+                    self.nl_con_0.append(t_glob[2])
                     self.nl_con.append(t_glob[2])
                     self.nl_con_e.append(t_glob[2])
+
+                    self.nl_lb_0.append(obs['bounds'][0])
+                    self.nl_ub_0.append(obs['bounds'][1])
                     self.nl_lb.append(obs['bounds'][0])
                     self.nl_ub.append(obs['bounds'][1])
                     self.nl_lb_e.append(obs['bounds'][0])
                     self.nl_ub_e.append(obs['bounds'][1])
                 elif obs['name'] == 'ball':
                     dist_b = (t_glob - obs['position']).T @ (t_glob - obs['position'])
+                    self.nl_con_0.append(dist_b)
                     self.nl_con.append(dist_b)
                     self.nl_con_e.append(dist_b)
+
+                    self.nl_lb_0.append(obs['bounds'][0])
+                    self.nl_ub_0.append(obs['bounds'][1])
                     self.nl_lb.append(obs['bounds'][0])
                     self.nl_ub.append(obs['bounds'][1])
                     self.nl_lb_e.append(obs['bounds'][0])
@@ -294,7 +314,7 @@ class AbstractController:
 
     def terminalConstraint(self, soft=True):
         # Get the actual number of nl_constraints --> will be the index for the soft constraint
-        num_nl_e = len(self.nl_con_e)
+        num_nl_e = np.sum([c.shape[0] for c in self.nl_con_e])  # verify if it works
 
         self.model.setNNmodel()
         self.nl_con_e.append(self.model.nn_model)
@@ -315,17 +335,14 @@ class AbstractController:
 
     def runningConstraint(self, soft=True):
         # Suppose that the NN model is already set (same for external model shared lib)
-        num_nl = len(self.nl_con)
+        num_nl = np.sum([c.shape[0] for c in self.nl_con])
         self.nl_con.append(self.model.nn_model)
 
         self.nl_lb.append(np.array([0.]))
         self.nl_ub.append(np.array([1e6]))      
 
         if soft:
-            self.ocp.constraints.idxsh = np.array([num_nl+1])
-            # TODO: +1 works only for nu = 2, such that 
-            # 3 dimensional run constraints, indexes 0 --> tau joint 1, 1 --> tau joint 2, 2 --> NN model
-            # so num_nl = 1, num_nl+1 = 2 --> right index for the soft constraint 
+            self.ocp.constraints.idxsh = np.array([num_nl])
 
             # Set zl initially to zero, then apply receding constraint in the step method
             self.ocp.cost.zl = np.array([0.])
@@ -401,11 +418,11 @@ class AbstractController:
             t_glob = self.model.jointToEE(x) 
             for obs in self.obstacles:
                 if obs['name'] == 'floor':
-                    if t_glob[2] < obs['bounds'][0]:
+                    if t_glob[2] + self.params.obs_tol < obs['bounds'][0]:
                         return False
                 elif obs['name'] == 'ball':
-                    dist_b = np.sum((t_glob - obs['position']) ** 2)
-                    if dist_b < obs['bounds'][0]:
+                    dist_b = np.sum((t_glob.flatten() - obs['position']) ** 2)
+                    if dist_b + self.params.obs_tol < obs['bounds'][0]:
                         return False
         return True
     

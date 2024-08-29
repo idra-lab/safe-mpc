@@ -14,12 +14,12 @@ def parse_args():
                         help='Controllers to test. Available: naive, st, stwa, htwa, receding')
     parser.add_argument('-b', '--build', action='store_true',
                         help='Build the code of the embedded controller')
-    parser.add_argument('-i', '--init-conditions', action='store_true',
-                        help='Find the initial conditions for testing all the controller')
-    parser.add_argument('-g', '--guess', action='store_true',
-                        help='Compute the initial guess of a given controller')
-    parser.add_argument('--rti', action='store_true',
-                        help='Use SQP-RTI for the MPC solver')
+    # parser.add_argument('-i', '--init-conditions', action='store_true',
+    #                     help='Find the initial conditions for testing all the controller')
+    # parser.add_argument('-g', '--guess', action='store_true',
+    #                     help='Compute the initial guess of a given controller')
+    # parser.add_argument('--rti', action='store_true',
+    #                     help='Use SQP-RTI for the MPC solver')
     parser.add_argument('-a', '--abort', type=str, default=None,
                         help='Define the MPC formulation for which the abort controller is tested. '
                              'Available: stwa, htwa, receding')
@@ -54,7 +54,7 @@ class Parameters:
         self.cpu_num = int(parameters['cpu_num'])
         self.build = False
         
-        self.T = float(parameters['T'])
+        self.N = int(parameters['N'])
         self.dt = float(parameters['dt'])
         self.alpha = float(parameters['alpha'])
 
@@ -67,7 +67,9 @@ class Parameters:
         self.levenberg_marquardt = float(parameters['levenberg_marquardt'])
 
         self.state_tol = float(parameters['state_tol'])
+        self.tau_tol = float(parameters['tau_tol'])
         self.dyn_tol = float(parameters['dyn_tol'])
+        self.obs_tol = float(parameters['obs_tol'])
         self.eps = float(parameters['eps'])
         self.conv_tol = float(parameters['conv_tol'])
         self.cost_tol = float(parameters['cost_tol'])
@@ -81,5 +83,5 @@ class Parameters:
         self.obs_flag = bool(parameters['obs_flag'])
         self.frame_name = 'gripperMover'       #  TODO: dependence on the robot
 
-        self.box_lb = np.array([0.25, -0.55, 0.])
-        self.box_ub = np.array([0.55, -0.25, 0.3])
+        self.box_lb = np.array([0.45, -0.55, 0.])
+        self.box_ub = np.array([0.75, -0.25, 0.3])
