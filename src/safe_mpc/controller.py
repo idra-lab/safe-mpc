@@ -20,7 +20,7 @@ class NaiveController(AbstractController):
         self.u_guess = np.full((self.N, self.model.nu), u0)
         # Solve the OCP
         status = self.solve(x0)
-        if (status == 0 or status == 2) and self.checkGuess():
+        if status == 0 and self.checkGuess():
             self.x_guess = np.copy(self.x_temp)
             self.u_guess = np.copy(self.u_temp)
             return 1
@@ -28,8 +28,7 @@ class NaiveController(AbstractController):
 
     def step(self, x):
         status = self.solve(x)
-        tau = np.array(self.model.tau_fun(x, self.u_temp[0]))
-        if status == 0 and self.model.checkTorqueConstraints(tau): 
+        if status == 0:
             self.fails = 0
         else:
             self.fails += 1
@@ -53,17 +52,17 @@ class STWAController(STController):
         return self.model.checkRunningConstraints(self.x_temp, self.u_temp) and \
                self.model.checkDynamicsConstraints(self.x_temp, self.u_temp) and \
                self.model.checkSafeConstraints(self.x_temp[-1]) and \
-                np.all([self.checkCollision(x) for x in self.x_temp])
+               np.all([self.checkCollision(x) for x in self.x_temp])
 
     def step(self, x):
         status = self.solve(x)
-        # TODO: check collisions
         if status == 0 and self.model.checkRunningConstraints(self.x_temp, self.u_temp) and \
-                self.model.checkSafeConstraints(self.x_temp[-1]):
+                self.model.checkSafeConstraints(self.x_temp[-1]) and \
+                np.all([self.checkCollision(x) for x in self.x_temp]):
             self.fails = 0
         else:
             if self.fails == 0:
-                self.x_viable = np.copy(self.x_guess[-2])
+                self.x_viable = np.copy(self.x_guess[-2])       # TODO: Check this
             if self.fails >= self.N:
                 return None
             self.fails += 1
@@ -110,7 +109,9 @@ class RecedingController(STWAController):
             if self.model.checkSafeConstraints(self.x_temp[i]):
                 r_new = i - 1
 
-        if status == 0 and self.model.checkRunningConstraints(self.x_temp, self.u_temp) and r_new > 0:
+        if status == 0 and r_new > 0 and \
+                self.model.checkRunningConstraints(self.x_temp, self.u_temp) and \
+                np.all([self.checkCollision(x) for x in self.x_temp]):
             self.fails = 0
             self.r = r_new
         else:
@@ -133,6 +134,7 @@ class SafeBackupController(AbstractController):
         self.ocp.cost.W = lin.block_diag(self.Q, self.R)
         self.ocp.cost.W_e = self.Q
 
+        # TODO: must be introduced again
         # q_fin_lb = np.hstack([self.model.x_min[:self.model.nq], np.zeros(self.model.nv)])
         # q_fin_ub = np.hstack([self.model.x_max[:self.model.nq], np.zeros(self.model.nv)])
 
