@@ -33,6 +33,20 @@ class NaiveController(AbstractController):
         else:
             self.fails += 1
         return self.provideControl()
+    
+    
+class TerminalZeroVelocity(NaiveController):
+    """ Naive MPC with zero terminal velocity as constraint """
+    def __init__(self, model, obstacles=None):
+        super().__init__(model, obstacles)
+
+    def additionalSetting(self):
+        x_min_e = np.hstack((self.model.x_min[:self.model.nq], np.zeros(self.model.nv)))
+        x_max_e = np.hstack((self.model.x_max[:self.model.nq], np.zeros(self.model.nv)))
+
+        self.ocp.constraints.lbx_e = x_min_e
+        self.ocp.constraints.ubx_e = x_max_e
+        self.ocp.constraints.idxbx_e = np.arange(self.model.nx)
 
 
 class STController(NaiveController):
@@ -56,13 +70,15 @@ class STWAController(STController):
 
     def step(self, x):
         status = self.solve(x)
-        if status == 0 and self.model.checkRunningConstraints(self.x_temp, self.u_temp) and \
-                self.model.checkSafeConstraints(self.x_temp[-1]) and \
+        # self.adjustGuess(self.x_temp, self.u_temp)
+        # TODO: compatible with the new version (see RecedingController)
+        if status == 0 and self.model.checkSafeConstraints(self.x_temp[-1]) and \
+                self.model.checkRunningConstraints(self.x_temp, self.u_temp) and \
                 np.all([self.checkCollision(x) for x in self.x_temp]):
             self.fails = 0
         else:
             if self.fails == 0:
-                self.x_viable = np.copy(self.x_guess[-2])       # TODO: Check this
+                self.x_viable = np.copy(self.x_guess[-2])       
             if self.fails >= self.N:
                 return None
             self.fails += 1
@@ -86,6 +102,7 @@ class RecedingController(STWAController):
     def __init__(self, model, obstacles):
         super().__init__(model, obstacles)
         self.r = self.N
+        self.r_last = self.N
 
     def additionalSetting(self):
         # Terminal constraint before, since it construct the nn model
@@ -104,22 +121,22 @@ class RecedingController(STWAController):
         # Solve the OCP
         status = self.solve(x)
 
-        r_new = -1
-        for i in range(1, self.N + 1):
+        self.r -= 1          
+        for i in range(self.r + 2, self.N + 1):
             if self.model.checkSafeConstraints(self.x_temp[i]):
-                r_new = i - 1
+                self.r = i - 1
 
-        if status == 0 and r_new > 0 and \
-                self.model.checkRunningConstraints(self.x_temp, self.u_temp) and \
-                np.all([self.checkCollision(x) for x in self.x_temp]):
+        if self.r == 1:
+            self.x_viable = np.copy(self.x_guess[self.r])
+            # self.x_viable = self.safeGuess(self.x_temp[0], self.u_temp, 1)[1]
+            return None
+
+        if status == 0 and self.model.checkStateConstraints(self.x_temp)  \
+                and np.all([self.checkCollision(x) for x in self.x_temp]):
             self.fails = 0
-            self.r = r_new
         else:
-            if self.r == 1:
-                self.x_viable = np.copy(self.x_guess[self.r])
-                return None
             self.fails += 1
-            self.r -= 1
+            
         return self.provideControl()
 
 
