@@ -4,29 +4,48 @@ from copy import deepcopy
 from urdf_parser_py.urdf import URDF
 import adam
 from adam.casadi import KinDynComputations
-from casadi import MX, vertcat, norm_2, Function
+from casadi import MX, vertcat, norm_2, Function, cos, sin
 from acados_template import AcadosModel, AcadosOcp, AcadosOcpSolver
 import torch
+import scipy.linalg as lin
 import torch.nn as nn
 import l4casadi as l4c
 
 
 class NeuralNetwork(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size, activation=nn.ReLU()):
+    def __init__(self, input_size, hidden_size, output_size, activation=nn.ReLU(), ub=None):
         super().__init__()
         self.linear_stack = nn.Sequential(
             nn.Linear(input_size, hidden_size),
             activation,
-            nn.Linear(hidden_size, hidden_size),
-            activation,
+            # nn.Linear(hidden_size, hidden_size),
+            # activation,
             nn.Linear(hidden_size, hidden_size),
             activation,
             nn.Linear(hidden_size, output_size),
             activation,
         )
+        self.ub = ub if ub is not None else 1.0
 
     def forward(self, x):
-        out = self.linear_stack(x)
+        out = self.linear_stack(x) * self.ub
+        return out
+
+
+class OldNeuralNetwork(nn.Module):
+    def __init__(self, input_size, hidden_size, output_size):
+        super().__init__()
+        self.linear_relu_stack = nn.Sequential(
+            nn.Linear(input_size, hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, output_size),
+            nn.ReLU(),
+        )
+
+    def forward(self, x):
+        out = self.linear_relu_stack(x)
         return out
 
 
@@ -115,21 +134,21 @@ class AdamModel:
         return np.array(self.ee_fun(x))
 
     def checkStateConstraints(self, x):
-        return np.all(np.logical_and(x >= self.x_min - self.params.state_tol, 
-                                     x <= self.x_max + self.params.state_tol))
+        return np.all(np.logical_and(x >= self.x_min - self.params.tol_x, 
+                                     x <= self.x_max + self.params.tol_x))
 
     def checkTorqueConstraints(self, tau):
         # for i in range(len(tau)):
         #     print(f' Iter {i} : {self.tau_max - np.abs(tau[i].flatten())}')
-        return np.all(np.logical_and(tau >= self.tau_min - self.params.tau_tol, 
-                                     tau <= self.tau_max + self.params.tau_tol))
+        return np.all(np.logical_and(tau >= self.tau_min - self.params.tol_tau, 
+                                     tau <= self.tau_max + self.params.tol_tau))
 
     def checkRunningConstraints(self, x, u):
         tau = np.array([self.tau_fun(x[i], u[i]).T for i in range(len(u))])
         return self.checkStateConstraints(x) and self.checkTorqueConstraints(tau)
 
     def checkSafeConstraints(self, x):
-        return self.nn_func(x) >= 0. 
+        return self.nn_func(x) >= - self.params.tol_nn 
     
     def integrate(self, x, u):
         x_next = np.zeros(self.nx)
@@ -143,7 +162,7 @@ class AdamModel:
             u = np.linalg.solve(M, (tau_sat.T - h)).T
         x_next[:self.nq] = x[:self.nq] + self.params.dt * x[self.nq:] + 0.5 * self.params.dt**2 * u
         x_next[self.nq:] = x[self.nq:] + self.params.dt * u
-        return x_next
+        return x_next, u
 
     def checkDynamicsConstraints(self, x, u):
         # Rollout the control sequence
@@ -151,15 +170,17 @@ class AdamModel:
         x_sim = np.zeros((n + 1, self.nx))
         x_sim[0] = np.copy(x[0])
         for i in range(n):
-            x_sim[i + 1] = self.integrate(x_sim[i], u[i])
+            x_sim[i + 1], _ = self.integrate(x_sim[i], u[i])
         # Check if the rollout state trajectory is almost equal to the optimal one
-        return np.linalg.norm(x - x_sim) < self.params.dyn_tol * np.sqrt(n+1) 
+        return np.linalg.norm(x - x_sim) < self.params.tol_dyn * np.sqrt(n+1) 
     
     def setNNmodel(self):
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         # model = NeuralNetwork(self.nx, (self.nx - 1) * 100, 1).to(device)
-        model = NeuralNetwork(self.nx, 512, 1).to(device)
-        nn_data = torch.load(f'{self.params.NN_DIR}model_{self.nq}dof{self.obs_add}.pt')
+        ub = max(self.x_max[self.nq:]) * np.sqrt(self.nq)
+        model = NeuralNetwork(self.nx, 256, 1, nn.Tanh(), ub)
+        nn_data = torch.load(f'{self.params.NN_DIR}model_{self.nq}dof{self.obs_add}.pt',
+                             map_location=torch.device('cpu'))
         model.load_state_dict(nn_data['model'])
 
         x_cp = deepcopy(self.x)
@@ -170,7 +191,477 @@ class AdamModel:
         state = vertcat(pos, vel_dir)
 
         self.l4c_model = l4c.L4CasADi(model,
-                                      device='cuda',
+                                      device='cpu',
+                                      name=f'{self.amodel.name}_model',
+                                      build_dir=f'{self.params.GEN_DIR}nn_{self.amodel.name}')
+        self.nn_model = self.l4c_model(state) * (100 - self.params.alpha) / 100 - vel_norm
+        self.nn_func = Function('nn_func', [self.x], [self.nn_model])
+
+class TriplePendulumModel(AdamModel):
+    ''' Triple pendulum model from the Lagrangian formulation '''
+    def __init__(self, params, n_dofs=3):
+        self.params = params
+        self.amodel = AcadosModel()
+
+        nq = n_dofs
+        self.amodel.name = 'triple_pendulum'
+        self.x = MX.sym("x", nq * 2)
+        self.x_dot = MX.sym("x_dot", nq * 2)
+        self.u = MX.sym("u", nq)
+        # Double integrator
+        self.f_disc = vertcat(
+            self.x[:nq] + params.dt * self.x[nq:] + 0.5 * params.dt**2 * self.u,
+            self.x[nq:] + params.dt * self.u
+        ) 
+            
+        self.amodel.x = self.x
+        self.amodel.u = self.u
+        self.amodel.disc_dyn_expr = self.f_disc
+
+        self.nx = self.amodel.x.size()[0]
+        self.nu = self.amodel.u.size()[0]
+        self.ny = self.nx + self.nu
+        self.nq = nq
+        self.nv = nq
+
+        # Real dynamics
+        self.tau = vertcat(
+            params.l1
+            * (
+                self.u[0] * params.l1 * params.m1
+                + self.u[0] * params.l1 * params.m2
+                + self.u[0] * params.l1 * params.m3
+                + self.u[1]
+                * params.l2
+                * (params.m2 + params.m3)
+                * cos(self.x[0] - self.x[1])
+                + self.u[2] * params.l2 * params.m3 * cos(self.x[0] - self.x[2])
+                + params.g * params.m1 * sin(self.x[0])
+                + params.g * params.m2 * sin(self.x[0])
+                + params.g * params.m3 * sin(self.x[0])
+                + params.l2 * params.m2 * self.x[4] ** 2 * sin(self.x[0] - self.x[1])
+                + params.l2 * params.m3 * self.x[4] ** 2 * sin(self.x[0] - self.x[1])
+                + params.l2 * params.m3 * self.x[5] ** 2 * sin(self.x[0] - self.x[2])
+            ),
+            params.l2
+            * (
+                self.u[1] * params.l2 * params.m2
+                + self.u[1] * params.l2 * params.m3
+                + self.u[0]
+                * params.l1
+                * (params.m2 + params.m3)
+                * cos(self.x[0] - self.x[1])
+                + self.u[2] * params.l2 * params.m3 * cos(self.x[1] - self.x[2])
+                - params.l1 * params.m2 * self.x[3] ** 2 * sin(self.x[0] - self.x[1])
+                - params.l1 * params.m3 * self.x[3] ** 2 * sin(self.x[0] - self.x[1])
+                + params.g * params.m2 * sin(self.x[1])
+                + params.g * params.m3 * sin(self.x[1])
+                + params.l2 * params.m3 * self.x[5] ** 2 * sin(self.x[1] - self.x[2])
+            ),
+            params.l2
+            * params.m3
+            * (
+                self.u[2] * params.l2
+                + self.u[0] * params.l1 * cos(self.x[0] - self.x[2])
+                + self.u[1] * params.l2 * cos(self.x[1] - self.x[2])
+                - params.l1 * self.x[3] ** 2 * sin(self.x[0] - self.x[2])
+                - params.l2 * self.x[4] ** 2 * sin(self.x[1] - self.x[2])
+                + params.g * sin(self.x[2])
+            ),
+        )
+        self.tau_fun = Function('tau', [self.x, self.u], [self.tau])
+
+        # Acceleration with forward dynamics
+        f_expl = vertcat(
+            (
+                -params.g
+                * params.l1
+                * params.l2
+                * params.l2
+                * params.m1
+                * params.m3
+                * sin(-2 * self.x[2] + 2 * self.x[1] + self.x[0])
+                - params.g
+                * params.l1
+                * params.l2
+                * params.l2
+                * params.m1
+                * params.m3
+                * sin(2 * self.x[2] - 2 * self.x[1] + self.x[0])
+                + 2
+                * self.u[0]
+                * params.l2
+                * params.l2
+                * params.m3
+                * cos(-2 * self.x[2] + 2 * self.x[1])
+                + 2
+                * self.x[3] ** 2
+                * params.l1 ** 2
+                * params.l2
+                * params.l2
+                * params.m2
+                * (params.m2 + params.m3)
+                * sin(-2 * self.x[1] + 2 * self.x[0])
+                - 2
+                * self.u[2]
+                * params.l1
+                * params.l2
+                * (params.m2 + params.m3)
+                * cos(-2 * self.x[1] + self.x[0] + self.x[2])
+                - 2
+                * self.u[1]
+                * params.l1
+                * params.l2
+                * params.m3
+                * cos(-2 * self.x[2] + self.x[1] + self.x[0])
+                + 2
+                * params.l1
+                * params.l2
+                * params.l2 ** 2
+                * params.m2
+                * params.m3
+                * self.x[5] ** 2
+                * sin(-2 * self.x[1] + self.x[0] + self.x[2])
+                + 2
+                * self.u[2]
+                * params.l1
+                * params.l2
+                * (params.m2 + params.m3)
+                * cos(self.x[0] - self.x[2])
+                + 2
+                * (
+                    self.u[1]
+                    * params.l1
+                    * (params.m3 + 2 * params.m2)
+                    * cos(-self.x[1] + self.x[0])
+                    + (
+                        params.g
+                        * params.l1
+                        * params.m2
+                        * (params.m2 + params.m3)
+                        * sin(-2 * self.x[1] + self.x[0])
+                        + 2
+                        * self.x[4] ** 2
+                        * params.l1
+                        * params.l2
+                        * params.m2
+                        * (params.m2 + params.m3)
+                        * sin(-self.x[1] + self.x[0])
+                        + params.m3
+                        * self.x[5] ** 2
+                        * sin(self.x[0] - self.x[2])
+                        * params.l1
+                        * params.l2
+                        * params.m2
+                        + params.g
+                        * params.l1
+                        * (
+                            params.m2 ** 2
+                            + (params.m3 + 2 * params.m1) * params.m2
+                            + params.m1 * params.m3
+                        )
+                        * sin(self.x[0])
+                        - self.u[0] * (params.m3 + 2 * params.m2)
+                    )
+                    * params.l2
+                )
+                * params.l2
+            )
+            / params.l1 ** 2
+            / params.l2
+            / (
+                params.m2
+                * (params.m2 + params.m3)
+                * cos(-2 * self.x[1] + 2 * self.x[0])
+                + params.m1 * params.m3 * cos(-2 * self.x[2] + 2 * self.x[1])
+                - params.m2 ** 2
+                + (-params.m3 - 2 * params.m1) * params.m2
+                - params.m1 * params.m3
+            )
+            / params.l2
+            / 2,
+            (
+                -2
+                * self.u[2]
+                * params.l1
+                * params.l2
+                * (params.m2 + params.m3)
+                * cos(2 * self.x[0] - self.x[2] - self.x[1])
+                - 2
+                * params.l1
+                * params.l2
+                * params.l2 ** 2
+                * params.m2
+                * params.m3
+                * self.x[5] ** 2
+                * sin(2 * self.x[0] - self.x[2] - self.x[1])
+                + params.g
+                * params.l1
+                * params.l2
+                * params.l2
+                * params.m1
+                * params.m3
+                * sin(self.x[1] + 2 * self.x[0] - 2 * self.x[2])
+                - params.g
+                * params.l1
+                * params.l2
+                * (
+                    (params.m1 + 2 * params.m2) * params.m3
+                    + 2 * params.m2 * (params.m1 + params.m2)
+                )
+                * params.l2
+                * sin(-self.x[1] + 2 * self.x[0])
+                - 2
+                * self.x[4] ** 2
+                * params.l1
+                * params.l2 ** 2
+                * params.l2
+                * params.m2
+                * (params.m2 + params.m3)
+                * sin(-2 * self.x[1] + 2 * self.x[0])
+                + 2
+                * self.u[1]
+                * params.l1
+                * params.l2
+                * params.m3
+                * cos(-2 * self.x[2] + 2 * self.x[0])
+                + 2
+                * params.l1
+                * params.l2 ** 2
+                * params.l2
+                * params.m1
+                * params.m3
+                * self.x[4] ** 2
+                * sin(-2 * self.x[2] + 2 * self.x[1])
+                - 2
+                * self.u[0]
+                * params.l2
+                * params.l2
+                * params.m3
+                * cos(-2 * self.x[2] + self.x[1] + self.x[0])
+                + 2
+                * params.l1 ** 2
+                * params.l2
+                * params.l2
+                * params.m1
+                * params.m3
+                * self.x[3] ** 2
+                * sin(-2 * self.x[2] + self.x[1] + self.x[0])
+                - 2
+                * params.l1 ** 2
+                * params.l2
+                * self.x[3] ** 2
+                * (
+                    (params.m1 + 2 * params.m2) * params.m3
+                    + 2 * params.m2 * (params.m1 + params.m2)
+                )
+                * params.l2
+                * sin(-self.x[1] + self.x[0])
+                + 2
+                * self.u[2]
+                * params.l1
+                * params.l2
+                * (params.m3 + 2 * params.m1 + params.m2)
+                * cos(-self.x[2] + self.x[1])
+                + (
+                    2
+                    * self.u[0]
+                    * params.l2
+                    * (params.m3 + 2 * params.m2)
+                    * cos(-self.x[1] + self.x[0])
+                    + params.l1
+                    * (
+                        4
+                        * self.x[5] ** 2
+                        * params.m3
+                        * params.l2
+                        * (params.m1 + params.m2 / 2)
+                        * params.l2
+                        * sin(-self.x[2] + self.x[1])
+                        + params.g
+                        * params.m3
+                        * params.l2
+                        * params.m1
+                        * sin(-2 * self.x[2] + self.x[1])
+                        + params.g
+                        * (
+                            (params.m1 + 2 * params.m2) * params.m3
+                            + 2 * params.m2 * (params.m1 + params.m2)
+                        )
+                        * params.l2
+                        * sin(self.x[1])
+                        - 2 * self.u[1] * (params.m3 + 2 * params.m1 + 2 * params.m2)
+                    )
+                )
+                * params.l2
+            )
+            / (
+                params.m2
+                * (params.m2 + params.m3)
+                * cos(-2 * self.x[1] + 2 * self.x[0])
+                + params.m1 * params.m3 * cos(-2 * self.x[2] + 2 * self.x[1])
+                + (-params.m1 - params.m2) * params.m3
+                - 2 * params.m1 * params.m2
+                - params.m2 ** 2
+            )
+            / params.l1
+            / params.l2
+            / params.l2 ** 2
+            / 2,
+            (
+                -2
+                * params.m3
+                * self.u[1]
+                * params.l1
+                * params.l2
+                * (params.m2 + params.m3)
+                * cos(2 * self.x[0] - self.x[2] - self.x[1])
+                + params.g
+                * params.m3
+                * params.l1
+                * params.l2
+                * params.l2
+                * params.m1
+                * (params.m2 + params.m3)
+                * sin(2 * self.x[0] + self.x[2] - 2 * self.x[1])
+                + 2
+                * self.u[2]
+                * params.l1
+                * params.l2
+                * (params.m2 + params.m3) ** 2
+                * cos(-2 * self.x[1] + 2 * self.x[0])
+                - params.g
+                * params.m3
+                * params.l1
+                * params.l2
+                * params.l2
+                * params.m1
+                * (params.m2 + params.m3)
+                * sin(2 * self.x[0] - self.x[2])
+                - params.g
+                * params.m3
+                * params.l1
+                * params.l2
+                * params.l2
+                * params.m1
+                * (params.m2 + params.m3)
+                * sin(-self.x[2] + 2 * self.x[1])
+                - 2
+                * params.l1
+                * params.l2
+                * params.l2 ** 2
+                * params.m1
+                * params.m3 ** 2
+                * self.x[5] ** 2
+                * sin(-2 * self.x[2] + 2 * self.x[1])
+                - 2
+                * self.u[0]
+                * params.l2
+                * params.l2
+                * params.m3
+                * (params.m2 + params.m3)
+                * cos(-2 * self.x[1] + self.x[0] + self.x[2])
+                + 2
+                * params.m3
+                * self.x[3] ** 2
+                * params.l1 ** 2
+                * params.l2
+                * params.l2
+                * params.m1
+                * (params.m2 + params.m3)
+                * sin(-2 * self.x[1] + self.x[0] + self.x[2])
+                + 2
+                * params.m3
+                * self.u[1]
+                * params.l1
+                * params.l2
+                * (params.m3 + 2 * params.m1 + params.m2)
+                * cos(-self.x[2] + self.x[1])
+                + (params.m2 + params.m3)
+                * (
+                    2 * self.u[0] * params.l2 * params.m3 * cos(self.x[0] - self.x[2])
+                    + params.l1
+                    * (
+                        -2
+                        * params.m3
+                        * self.x[3] ** 2
+                        * params.l1
+                        * params.l2
+                        * params.m1
+                        * sin(self.x[0] - self.x[2])
+                        - 4
+                        * params.m3
+                        * self.x[4] ** 2
+                        * sin(-self.x[2] + self.x[1])
+                        * params.l2
+                        * params.l2
+                        * params.m1
+                        + params.g * params.m3 * sin(self.x[2]) * params.l2 * params.m1
+                        - 2 * self.u[2] * (params.m3 + 2 * params.m1 + params.m2)
+                    )
+                )
+                * params.l2
+            )
+            / params.m3
+            / (
+                params.m2
+                * (params.m2 + params.m3)
+                * cos(-2 * self.x[1] + 2 * self.x[0])
+                + params.m1 * params.m3 * cos(-2 * self.x[2] + 2 * self.x[1])
+                + (-params.m1 - params.m2) * params.m3
+                - 2 * params.m1 * params.m2
+                - params.m2 ** 2
+            )
+            / params.l1
+            / params.l2 ** 2
+            / params.l2
+            / 2,
+        )
+        # IMPORTANT: in the self.u now the torque should be inserted
+        self.acc_fun = Function('acc', [self.x, self.u], [f_expl])
+
+        # Joint limits
+        joint_lower = np.ones(nq) * params.q_min
+        joint_upper = np.ones(nq) * params.q_max
+        joint_velocity = np.ones(nq) * params.dq_lim 
+        joint_effort = np.ones(nq) * params.tau_lim 
+
+        self.tau_min = - joint_effort
+        self.tau_max = joint_effort
+        self.x_min = np.hstack([joint_lower, - joint_velocity])
+        self.x_max = np.hstack([joint_upper, joint_velocity])
+
+        # NN model (viability constraint)
+        self.l4c_model = None
+        self.nn_model = None
+        self.nn_func = None
+
+    def integrate(self, x, u):
+        x_next = np.zeros(self.nx)
+        tau = np.array(self.tau_fun(x, u).T)
+        if not self.checkTorqueConstraints(tau):
+            # Cannot exceed the torque limits --> sat and compute forward dynamics on real system 
+            u = np.array(self.acc_fun(x, tau).T)
+        x_next[:self.nq] = x[:self.nq] + self.params.dt * x[self.nq:] + 0.5 * self.params.dt**2 * u
+        x_next[self.nq:] = x[self.nq:] + self.params.dt * u
+        return x_next, u
+    
+    def setNNmodel(self):
+        device = torch.device('cpu')
+        model = OldNeuralNetwork(self.nx, (self.nx - 1) * 100, 1)
+        model.load_state_dict(torch.load(self.params.NN_DIR + 'model.zip', map_location=device))
+        mean = torch.load(self.params.NN_DIR + 'mean.zip')
+        std = torch.load(self.params.NN_DIR + 'std.zip')
+
+        x_cp = deepcopy(self.x)
+        x_cp[self.nq] += self.params.eps
+        vel_norm = norm_2(x_cp[self.nq:])
+        pos = (x_cp[:self.nq] - mean) / std
+        vel_dir = x_cp[self.nq:] / vel_norm
+        state = vertcat(pos, vel_dir)
+
+        self.l4c_model = l4c.L4CasADi(model,
+                                      device='cpu',
                                       name=f'{self.amodel.name}_model',
                                       build_dir=f'{self.params.GEN_DIR}nn_{self.amodel.name}')
         self.nn_model = self.l4c_model(state) * (100 - self.params.alpha) / 100 - vel_norm
@@ -195,18 +686,44 @@ class AbstractController:
         self.ocp.model = self.model.amodel
 
         # Cost
-        self.Q = 1e2 * np.eye(self.model.np)
-        self.R = 5e-3 * np.eye(self.model.nu)
+        if self.model.amodel.name == 'triple_pendulum':
+            self.Q = 1e-4 * np.eye(self.model.nx)
+            self.Q[0, 0] = 5e2
+            self.R = 1e-4 * np.eye(self.model.nu)
 
-        self.ocp.cost.cost_type = 'EXTERNAL'
-        self.ocp.cost.cost_type_e = 'EXTERNAL'
+            self.ocp.cost.W = lin.block_diag(self.Q, self.R)
+            self.ocp.cost.W_e = self.Q
+            
+            self.ocp.cost.cost_type = 'LINEAR_LS'
+            self.ocp.cost.cost_type_e = 'LINEAR_LS'
 
-        t_glob = self.model.t_glob
-        delta = t_glob - self.model.p
-        track_ee = delta.T @ self.Q @ delta 
-        self.ocp.model.cost_expr_ext_cost = track_ee + self.model.u.T @ self.R @ self.model.u
-        self.ocp.model.cost_expr_ext_cost_e = track_ee
-        self.ocp.parameter_values = np.zeros(self.model.np)
+            self.x_ref = np.zeros(self.model.nx)
+            self.x_ref[:self.model.nq] = np.pi
+            self.x_ref[0] = self.params.q_max - 0.05
+
+            self.ocp.cost.Vx = np.zeros((self.model.ny, self.model.nx))
+            self.ocp.cost.Vx[:self.model.nx, :self.model.nx] = np.eye(self.model.nx)
+            self.ocp.cost.Vu = np.zeros((self.model.ny, self.model.nu))
+            self.ocp.cost.Vu[self.model.nx:, :self.model.nu] = np.eye(self.model.nu)
+            self.ocp.cost.Vx_e = np.eye(self.model.nx)
+
+            self.ocp.cost.yref = np.zeros(self.model.ny)
+            self.ocp.cost.yref[:self.model.nx] = self.x_ref 
+            self.ocp.cost.yref_e = self.x_ref
+
+        else:
+            self.Q = 1e2 * np.eye(self.model.np)
+            self.R = 5e-3 * np.eye(self.model.nu) 
+
+            self.ocp.cost.cost_type = 'EXTERNAL'
+            self.ocp.cost.cost_type_e = 'EXTERNAL'
+
+            t_glob = self.model.t_glob
+            delta = t_glob - self.model.p
+            track_ee = delta.T @ self.Q @ delta 
+            self.ocp.model.cost_expr_ext_cost = track_ee + self.model.u.T @ self.R @ self.model.u
+            self.ocp.model.cost_expr_ext_cost_e = track_ee
+            self.ocp.parameter_values = np.zeros(self.model.np)
 
         # Constraints
         self.ocp.constraints.lbx_0 = self.model.x_min
@@ -285,9 +802,17 @@ class AbstractController:
         self.ocp.solver_options.exact_hess_dyn = 0   
         self.ocp.solver_options.nlp_solver_type = self.params.solver_type
         self.ocp.solver_options.hpipm_mode = self.params.solver_mode
+        # self.ocp.solver_options.qp_solver = 'PARTIAL_CONDENSING_OSQP'
         self.ocp.solver_options.nlp_solver_max_iter = self.params.nlp_max_iter
         self.ocp.solver_options.qp_solver_iter_max = self.params.qp_max_iter
         self.ocp.solver_options.globalization = self.params.globalization
+        # self.ocp.solver_options.alpha_reduction = self.params.alpha_reduction
+        # self.ocp.solver_options.alpha_min = self.params.alpha_min
+        self.ocp.solver_options.levenberg_marquardt = self.params.levenberg_marquardt
+        # self.ocp.solver_options.tol = 1e-4
+        # self.ocp.solver_options.qp_tol = 1e-4
+        # self.ocp.solver_options.regularize_method = 'PROJECT'   # Maybe is a good idea if exact hessian is not used
+        # self.ocp.solver_options.ext_fun_compile_flags = '-O2'
 
         gen_name = self.params.GEN_DIR + 'ocp_' + self.ocp_name + '_' + self.model.amodel.name
         self.ocp.code_export_directory = gen_name
@@ -295,7 +820,6 @@ class AbstractController:
 
         # Reference and fails counter
         self.fails = 0
-        self.x_ref = np.zeros(self.model.nx)
 
         # Empty initial guess and temp vectors
         self.x_guess = np.zeros((self.N + 1, self.model.nx))
@@ -308,6 +832,7 @@ class AbstractController:
         # Time stats
         self.time_fields = ['time_lin', 'time_sim', 'time_qp', 'time_qp_solver_call',
                             'time_glob', 'time_reg', 'time_tot']
+        self.last_status = 4
 
     def additionalSetting(self):
         pass
@@ -361,13 +886,20 @@ class AbstractController:
         for i in range(self.N):
             self.ocp_solver.set(i, 'x', self.x_guess[i])
             self.ocp_solver.set(i, 'u', self.u_guess[i])
-            self.ocp_solver.set(i, 'p', self.model.ee_ref)
+            if not self.model.amodel.name == 'triple_pendulum':
+                self.ocp_solver.set(i, 'p', self.model.ee_ref)
 
         self.ocp_solver.set(self.N, 'x', self.x_guess[-1])
-        self.ocp_solver.set(self.N, 'p', self.model.ee_ref)
+        if not self.model.amodel.name == 'triple_pendulum':
+            self.ocp_solver.set(self.N, 'p', self.model.ee_ref)
 
         # Solve the OCP
         status = self.ocp_solver.solve()
+        # self.ocp_solver.store_iterate(overwrite=True)
+        # if status != 0:
+        #     self.ocp_solver.print_statistics()
+        #     self.ocp_solver.dump_last_qp_to_json("qp.json", overwrite=True)
+            # self.ocp_solver.reset()         # Reset the solver, to remove all the NaNs
 
         # Save the temporary solution, independently of the status
         for i in range(self.N):
@@ -375,6 +907,7 @@ class AbstractController:
             self.u_temp[i] = self.ocp_solver.get(i, "u")
         self.x_temp[-1] = self.ocp_solver.get(self.N, "x")
 
+        self.last_status = status
         return status
 
     def provideControl(self):
@@ -418,11 +951,11 @@ class AbstractController:
             t_glob = self.model.jointToEE(x) 
             for obs in self.obstacles:
                 if obs['name'] == 'floor':
-                    if t_glob[2] + self.params.obs_tol < obs['bounds'][0]:
+                    if t_glob[2] + self.params.tol_obs < obs['bounds'][0]:
                         return False
                 elif obs['name'] == 'ball':
                     dist_b = np.sum((t_glob.flatten() - obs['position']) ** 2)
-                    if dist_b + self.params.obs_tol < obs['bounds'][0]:
+                    if dist_b + self.params.tol_obs < obs['bounds'][0]:
                         return False
         return True
     
@@ -435,3 +968,21 @@ class AbstractController:
 
         self.x_temp = np.zeros((self.N + 1, self.model.nx))
         self.u_temp = np.zeros((self.N, self.model.nu))
+
+    def safeGuess(self, x, u, n_safe):
+        for i in range(n_safe):
+            x, _ = self.model.integrate(x, u[i])
+            if not self.model.checkStateConstraints(x) or not self.checkCollision(x):
+                return False, None
+        return self.model.checkSafeConstraints(x), x
+    
+    def guessCorrection(self):
+        x_sim = np.copy(self.x_guess)
+        u_sim = np.copy(self.u_guess)
+        for i in range(self.N):
+            x_sim[i + 1], u_sim[i] = self.model.integrate(x_sim[i], self.u_guess[i])
+        if self.model.checkStateConstraints(x_sim) and np.all([self.checkCollision(x) for x in x_sim]):
+            self.x_guess = np.copy(x_sim)
+            self.u_guess = np.copy(u_sim)
+            return True
+        return False
