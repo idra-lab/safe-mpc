@@ -37,6 +37,7 @@ obstacles.append(obs)
 
 def get_controller(cont_name, model, obstacles) -> AbstractController:
     controllers = { 'naive': NaiveController,
+                    'zerovel': TerminalZeroVelocity,
                     'st': STController,
                     'stwa': STWAController,
                     'htwa': HTWAController,
