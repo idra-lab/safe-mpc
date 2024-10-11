@@ -6,7 +6,7 @@ import argparse
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-s', '--system', type=str, default='double_pendulum',
+    parser.add_argument('-s', '--system', type=str, default='z1',
                         help='Systems to test. Available: pendulum, double_pendulum, ur5, z1')
     parser.add_argument('--dofs', type=int, default=False, nargs='?',
                         help='Number of desired degrees of freedom of the system')
@@ -60,19 +60,21 @@ class Parameters:
 
         self.solver_type = 'SQP_RTI' if rti else 'SQP'
         self.solver_mode = parameters['solver_mode']
-        self.nlp_max_iter = int(parameters['nlp_max_iter'])
+        self.nlp_max_iter = int(parameters['rti_iter']) if rti else int(parameters['nlp_max_iter'])
         self.qp_max_iter = int(parameters['qp_max_iter'])
         self.alpha_reduction = float(parameters['alpha_reduction'])
         self.alpha_min = float(parameters['alpha_min'])
         self.levenberg_marquardt = float(parameters['levenberg_marquardt'])
 
-        self.state_tol = float(parameters['state_tol'])
-        self.tau_tol = float(parameters['tau_tol'])
-        self.dyn_tol = float(parameters['dyn_tol'])
-        self.obs_tol = float(parameters['obs_tol'])
+        self.tol_x = float(parameters['tol_x'])
+        self.tol_tau = float(parameters['tol_tau'])
+        self.tol_dyn = float(parameters['tol_dyn'])
+        self.tol_obs = float(parameters['tol_obs'])
+        self.tol_nn = float(parameters['tol_nn'])
+
         self.eps = float(parameters['eps'])
-        self.conv_tol = float(parameters['conv_tol'])
-        self.cost_tol = float(parameters['cost_tol'])
+        self.tol_conv = float(parameters['tol_conv'])
+        self.tol_cost = float(parameters['tol_cost'])
         self.globalization = 'FIXED_STEP' if rti else 'MERIT_BACKTRACKING'
 
         self.q_dot_gain = float(parameters['q_dot_gain'])
@@ -85,3 +87,17 @@ class Parameters:
 
         self.box_lb = np.array([0.45, -0.55, 0.])
         self.box_ub = np.array([0.75, -0.25, 0.3])
+
+        # For triple pendulum
+        self.g = 9.81
+        self.m1 = 0.4
+        self.m2 = 0.4
+        self.m3 = 0.4
+        self.l1 = 0.8
+        self.l2 = 0.8
+        self.l3 = 0.8
+
+        self.q_min = 3 / 4 * np.pi
+        self.q_max = 5 / 4 * np.pi
+        self.dq_lim = 10
+        self.tau_lim = 10
