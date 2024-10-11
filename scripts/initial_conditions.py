@@ -44,12 +44,13 @@ x_guess, u_guess = [], []
 progress_bar = tqdm(total=num_ics, desc='Generating initial conditions')
 while i < num_ics:
     q0 = qmc.scale(sampler.random(), model.x_min[:model.nq], model.x_max[:model.nq])[0]
-    T_ee = kin_dyn.forward_kinematics(params.frame_name, H_b, q0)
-    ee_pos = T_ee[:3, 3] + T_ee[:3, :3] @ model.t_loc
-    # Check if ee satisfy our desired initial conditions
-    if np.all(np.logical_and(ee_pos >= params.box_lb, ee_pos <= params.box_ub)):
-        x0 = np.zeros((model.nx,))
-        x0[:model.nq] = q0
+    x0 = np.zeros((model.nx,))
+    x0[:model.nq] = q0
+    if controller.checkCollision(x0):
+    # T_ee = kin_dyn.forward_kinematics(params.frame_name, H_b, q0)
+    # ee_pos = T_ee[:3, 3] + T_ee[:3, :3] @ model.t_loc
+    # # Check if ee satisfy our desired initial conditions
+    # if np.all(np.logical_and(ee_pos >= params.box_lb, ee_pos <= params.box_ub)):
         u0 = model.gravity(H_b, q0)[6:]
         if controller.initialize(x0, u0.T):
             i += 1    
