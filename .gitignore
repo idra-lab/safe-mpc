@@ -4,10 +4,12 @@
 *.png
 *.pdf
 *.zip
+*.json
 generated/*
 nn_models/*
 data/*
 .github/
 .idea/
 **/c_generated_code/
+**/_l4c_generated/
 **/__pycache__/
