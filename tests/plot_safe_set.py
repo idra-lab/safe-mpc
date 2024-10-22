@@ -13,13 +13,13 @@ params = Parameters('z1', rti=True)
 model = AdamModel(params, n_dofs=4)
 controller = NaiveController(model, obstacles)
 
-sm = 15
+sm = 10
 nq = model.nq
 grid = 1e-2
 
 ub = np.sqrt(nq) * max(model.x_max[nq:])
-nn_model = NeuralNetwork(model.nx, 256, 1, nn.Tanh(), ub)
-nn_data = torch.load(f'{params.NN_DIR}model_{nq}dof{model.obs_add}.pt',
+nn_model = NeuralNetwork(model.nx, 256, 1, nn.GELU())
+nn_data = torch.load(f'{params.NN_DIR}{nq}dof_gelu{model.obs_string}.pt',
                      map_location=torch.device('cpu'))
 nn_model.load_state_dict(nn_data['model'])
 mean = nn_data['mean']
@@ -75,3 +75,5 @@ for i in range(nq):
     plt.grid()
     plt.title(f"Classifier section joint {i + 1}, horizon {controller.N}")
     plt.savefig(f'data/{i + 1}dof_{controller.N}_BRS.png')
+
+plt.show()
