@@ -8,23 +8,14 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('-s', '--system', type=str, default='z1',
                         help='Systems to test. Available: pendulum, double_pendulum, ur5, z1')
-    parser.add_argument('--dofs', type=int, default=False, nargs='?',
+    parser.add_argument('-d', '--dofs', type=int, default=False, nargs='?',
                         help='Number of desired degrees of freedom of the system')
     parser.add_argument('-c', '--controller', type=str, default='naive',
                         help='Controllers to test. Available: naive, st, stwa, htwa, receding')
     parser.add_argument('-b', '--build', action='store_true',
                         help='Build the code of the embedded controller')
-    # parser.add_argument('-i', '--init-conditions', action='store_true',
-    #                     help='Find the initial conditions for testing all the controller')
-    # parser.add_argument('-g', '--guess', action='store_true',
-    #                     help='Compute the initial guess of a given controller')
-    # parser.add_argument('--rti', action='store_true',
-    #                     help='Use SQP-RTI for the MPC solver')
-    parser.add_argument('-a', '--abort', type=str, default=None,
-                        help='Define the MPC formulation for which the abort controller is tested. '
-                             'Available: stwa, htwa, receding')
-    parser.add_argument('--repetition', type=int, default=5,
-                        help='Number of repetitions for the abort controller')
+    parser.add_argument('-a', '--activation', type=str, default='gelu',
+                        help='Activation function for the neural network')
     parser.add_argument('--plot', action='store_true',
                         help='Plot the results')
     return vars(parser.parse_args())
@@ -57,6 +48,7 @@ class Parameters:
         self.N = int(parameters['N'])
         self.dt = float(parameters['dt'])
         self.alpha = float(parameters['alpha'])
+        self.act = 'tanh' if urdf_name == 'z1' else 'relu'
 
         self.solver_type = 'SQP_RTI' if rti else 'SQP'
         self.solver_mode = parameters['solver_mode']
