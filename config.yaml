@@ -4,7 +4,7 @@ cpu_num: 24
 
 N: 45                     # horizon length --> 45 for z1 
 dt: 5e-3                  # time step
-alpha: 30.                 # safety margin --> 15. for z1
+alpha: 10.                # safety margin 
 
 solver_mode: 'BALANCE'     # HPIPM mode, can be --> 'BALANCE', 'ROBUST', 'SPEED', 'SPEED_ABS'
 nlp_max_iter: 500
@@ -25,7 +25,7 @@ tol_conv: 1e-3            # convergence tolerance for the task
 tol_cost: 1e-3            # Tolerance for the cost
 
 q_dot_gain: 1e4
-ws_t: 1e4
+ws_t: 1e2
 ws_r: 1e4
 
 obs_flag: true           # activation of Cartesian constraints
