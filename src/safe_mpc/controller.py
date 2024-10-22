@@ -72,8 +72,7 @@ class STWAController(STController):
         status = self.solve(x)
         # self.adjustGuess(self.x_temp, self.u_temp)
         # TODO: compatible with the new version (see RecedingController)
-        if status == 0 and self.model.checkSafeConstraints(self.x_temp[-1]) and \
-                self.model.checkRunningConstraints(self.x_temp, self.u_temp) and \
+        if status == 0 and self.model.checkStateConstraints(self.x_temp) and \
                 np.all([self.checkCollision(x) for x in self.x_temp]):
             self.fails = 0
         else:
@@ -141,20 +140,34 @@ class RecedingController(STWAController):
 
 
 class SafeBackupController(AbstractController):
-    def __init__(self, model):
-        super().__init__(model)
+    def __init__(self, model, obstacles):
+        super().__init__(model, obstacles)
 
     def additionalSetting(self):
+        # Linear LS cost
+        self.ocp.cost.cost_type = 'LINEAR_LS'        
+        self.ocp.cost.cost_type_e = 'LINEAR_LS'
+
         self.Q = np.zeros((self.model.nx, self.model.nx))
+        # Penalize only the velocity
         self.Q[self.model.nq:, self.model.nq:] = np.eye(self.model.nv) * self.params.q_dot_gain
 
         self.ocp.cost.W = lin.block_diag(self.Q, self.R)
         self.ocp.cost.W_e = self.Q
 
-        # TODO: must be introduced again
-        # q_fin_lb = np.hstack([self.model.x_min[:self.model.nq], np.zeros(self.model.nv)])
-        # q_fin_ub = np.hstack([self.model.x_max[:self.model.nq], np.zeros(self.model.nv)])
+        self.ocp.cost.Vx = np.zeros((self.model.ny, self.model.nx))
+        self.ocp.cost.Vx[:self.model.nx, :self.model.nx] = np.eye(self.model.nx)
+        self.ocp.cost.Vu = np.zeros((self.model.ny, self.model.nu))
+        self.ocp.cost.Vu[self.model.nx:, :self.model.nu] = np.eye(self.model.nu)
+        self.ocp.cost.Vx_e = np.eye(self.model.nx)
 
-        # self.ocp.constraints.lbx_e = q_fin_lb
-        # self.ocp.constraints.ubx_e = q_fin_ub
-        # self.ocp.constraints.idxbx_e = np.arange(self.model.nx)
+        self.ocp.cost.yref = np.zeros(self.model.ny)
+        self.ocp.cost.yref_e = np.zeros(self.model.nx)
+
+        # Terminal constraint --> zero velocity
+        q_fin_lb = np.hstack([self.model.x_min[:self.model.nq], np.zeros(self.model.nv)])
+        q_fin_ub = np.hstack([self.model.x_max[:self.model.nq], np.zeros(self.model.nv)])
+
+        self.ocp.constraints.lbx_e = q_fin_lb
+        self.ocp.constraints.ubx_e = q_fin_ub
+        self.ocp.constraints.idxbx_e = np.arange(self.model.nx)
