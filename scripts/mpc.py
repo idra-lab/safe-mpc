@@ -1,6 +1,7 @@
 import pickle
 import numpy as np
 from tqdm import tqdm
+from functools import reduce
 from safe_mpc.parser import Parameters, parse_args
 from safe_mpc.abstract import AdamModel, TriplePendulumModel
 from safe_mpc.utils import obstacles, ee_ref, get_controller
@@ -16,6 +17,7 @@ args = parse_args()
 model_name = args['system']
 params = Parameters(model_name, rti=True)
 params.build = args['build']
+params.act = args['activation']
 if model_name == 'triple_pendulum':
     model = TriplePendulumModel(params)
 else:
@@ -33,10 +35,8 @@ u_guess = data['ug']
 x_init = x_guess[:,0,:]
 
 # MPC simulation 
-conv_idx = []
-collisions_idx = []
-x_sim_list = []
-# nn_list = []
+conv_idx, collisions_idx, viable_idx = [], [], []
+x_sim_list, u_list, x_viable = [], [], []
 stats = []
 EVAL = False
 
@@ -53,9 +53,14 @@ for i in range(params.test_num):
     x_sim[0] = x0
 
     controller.setGuess(x_guess[i], u_guess[i])
-    if controller.ocp_name == 'receding':
+    try:
         controller.r = controller.N
         controller.r_last = controller.N
+    except:
+        pass
+    # if controller.ocp_name == 'receding':
+    #     controller.r = controller.N
+    #     controller.r_last = controller.N
     controller.fails = 0
     j = 0
     for j in range(params.n_steps):
@@ -110,37 +115,37 @@ for i in range(params.test_num):
         x_sim[j + 1], _ = model.integrate(x_sim[j], u[j])
         # Check next state bounds and collision
         if not model.checkStateConstraints(x_sim[j + 1]):   
-            collisions_idx.append(i)
             print('  FAIL BOUNDS')
             print(f'\tState {j + 1} violation: {np.min(np.vstack((model.x_max - x_sim[j + 1], x_sim[j + 1] - model.x_min)), axis=0)}')
             print(f'\tCurrent controller fails: {controller.fails}')
-            if controller.ocp_name == 'receding':
-                print(f'\tLast receding position before fail: {controller.r_last}')
+            if np.isnan(x_sim[j + 1]).any():
+                x_viable += [controller.getLastViableState()]
+                viable_idx.append(i)
+            else:
+                collisions_idx.append(i)
             break
         if not controller.checkCollision(x_sim[j + 1]):
             # print(f'Obstacle detected at step {j + 1}, with state {x_sim[j + 1]}')
             collisions_idx.append(i)
             print('  FAIL COLLISION')
             break
-        # Check convergence
-        if not model.amodel.name == 'triple_pendulum':
-            if np.linalg.norm(model.jointToEE(x_sim[j + 1]).T - ee_ref) < params.tol_conv:
-                conv_idx.append(i)
-                print('  SUCCESS !!')
-                break
-        else:
-            if convergenceCriteria(x_sim[j + 1], np.array([1, 0, 0, 1, 0, 0])):
-                conv_idx.append(i)
-                print('  SUCCESS !!')
-                break
-    x_sim_list.append(x_sim)#, nn_list.append(nn_eval)
+    # Check convergence
+    if not model.amodel.name == 'triple_pendulum':
+        if np.linalg.norm(model.jointToEE(x_sim[-1]).T - ee_ref) < params.tol_conv:
+            conv_idx.append(i)
+            print('  SUCCESS !!')
+    else:
+        if convergenceCriteria(x_sim[-1], np.array([1, 0, 0, 1, 0, 0])) and not np.isnan(x_sim[-1]).any():
+            conv_idx.append(i)
+            print('  SUCCESS !!')
+    x_sim_list.append(x_sim), u_list.append(u)
 
-unconv_idx = np.setdiff1d(np.arange(params.test_num), np.union1d(conv_idx, collisions_idx))
+unconv_idx = np.setdiff1d(np.arange(params.test_num), 
+                          reduce(np.union1d, (conv_idx, collisions_idx, viable_idx)))
 print('Completed task: ', len(conv_idx))
 print('Collisions: ', len(collisions_idx))
+print('Viable states: ', len(viable_idx))
 print('Not converged: ', len(unconv_idx))
-# print('Convergence indices: ', conv_idx)
-# print('Collision indices: ', collisions_idx)
 
 print('Failing reasons:', 
       f'\n\t x bounds: {counters[0]}',
@@ -153,14 +158,16 @@ print('99% quantile of the computation time:')
 times = np.array(stats)
 for field, t in zip(controller.time_fields, np.quantile(times, 0.99, axis=0)):
     print(f"{field:<20} -> {t}")
-
+    
 # Save simulation data
-with open(f'{params.DATA_DIR}{cont_name}_mpc.pkl', 'wb') as f:
+with open(f'{params.DATA_DIR}{model_name}_{cont_name}_mpc.pkl', 'wb') as f:
     pickle.dump({'x': np.asarray(x_sim_list),
-                #  'nn_eval': np.asarray(nn_list),
+                 'u': np.asarray(u_list),
                  'conv_idx' : np.asarray(conv_idx),
                  'collisions_idx' : np.asarray(collisions_idx),
-                 'unconv_idx' : np.asarray(unconv_idx)}, f)
+                 'unconv_idx' : np.asarray(unconv_idx),
+                 'viable_idx': np.asarray(viable_idx), 
+                 'x_viable': np.asarray(x_viable)}, f)
 
 # print(f'Total torque violations: {len(tau_viol)}')
 # np.save(f'{params.DATA_DIR}tau_viol_wo_check.npy', np.asarray(tau_viol))
