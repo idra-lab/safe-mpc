@@ -4,6 +4,7 @@ import numpy as np
 import pinocchio as pin
 from .abstract import AbstractController
 from .controller import *
+from .ocp import *
 
 
 ### OBSTACLES ###
@@ -34,6 +35,18 @@ obstacles.append(obs)
 
 
 ### METHODS ###
+
+def get_ocp(ocp_name, model, obstacles) -> NaiveOCP:
+    ocps = { 'naive': NaiveOCP,
+             'zerovel': TerminalZeroVelOCP,
+             'st': SoftTerminalOCP,
+             'stwa': SoftTerminalOCP,
+             'htwa': HardTerminalOCP,
+             'receding': HardTerminalOCP }
+    if ocp_name in ocps:
+        return ocps[ocp_name](model, obstacles)
+    else:
+        raise ValueError(f'OCP {ocp_name} not available')
 
 def get_controller(cont_name, model, obstacles) -> AbstractController:
     controllers = { 'naive': NaiveController,
