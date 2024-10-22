@@ -18,8 +18,8 @@ class NeuralNetwork(nn.Module):
         self.linear_stack = nn.Sequential(
             nn.Linear(input_size, hidden_size),
             activation,
-            # nn.Linear(hidden_size, hidden_size),
-            # activation,
+            nn.Linear(hidden_size, hidden_size),
+            activation,
             nn.Linear(hidden_size, hidden_size),
             activation,
             nn.Linear(hidden_size, output_size),
@@ -82,6 +82,7 @@ class AdamModel:
             self.x[:nq] + params.dt * self.x[nq:] + 0.5 * params.dt**2 * self.u,
             self.x[nq:] + params.dt * self.u
         ) 
+        self.f_fun = Function('f', [self.x, self.u], [self.f_disc])
             
         self.amodel.x = self.x
         self.amodel.u = self.u
@@ -128,7 +129,7 @@ class AdamModel:
         self.nn_func = None
 
         # Cartesian constraints
-        self.obs_add = '_obs' if params.obs_flag else ''
+        self.obs_string = '_obs' if params.obs_flag else ''
 
     def jointToEE(self, x):
         return np.array(self.ee_fun(x))
@@ -175,11 +176,25 @@ class AdamModel:
         return np.linalg.norm(x - x_sim) < self.params.tol_dyn * np.sqrt(n+1) 
     
     def setNNmodel(self):
-        # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        # model = NeuralNetwork(self.nx, (self.nx - 1) * 100, 1).to(device)
-        ub = max(self.x_max[self.nq:]) * np.sqrt(self.nq)
-        model = NeuralNetwork(self.nx, 256, 1, nn.Tanh(), ub)
-        nn_data = torch.load(f'{self.params.NN_DIR}model_{self.nq}dof{self.obs_add}.pt',
+        nls = {
+            'relu': torch.nn.ReLU(),
+            'elu': torch.nn.ELU(),
+            'tanh': torch.nn.Tanh(),
+            'gelu': torch.nn.GELU(approximate='tanh'),
+            'silu': torch.nn.SiLU()
+        }
+        act = self.params.act
+        act_fun = nls[act]
+
+        if act in ['tanh']: #, 'sine']:
+            ub = max(self.x_max[self.nq:]) * np.sqrt(self.nq)
+        else:
+            ub = 1
+
+        model = NeuralNetwork(self.nx, 256, 1, act_fun, ub)
+        # print(model)
+        # print(f'{self.params.NN_DIR}{self.nq}dof_{act}{self.obs_string}.pt')
+        nn_data = torch.load(f'{self.params.NN_DIR}{self.nq}dof_{act}{self.obs_string}.pt',
                              map_location=torch.device('cpu'))
         model.load_state_dict(nn_data['model'])
 
@@ -213,6 +228,7 @@ class TriplePendulumModel(AdamModel):
             self.x[:nq] + params.dt * self.x[nq:] + 0.5 * params.dt**2 * self.u,
             self.x[nq:] + params.dt * self.u
         ) 
+        self.f_fun = Function('f', [self.x, self.u], [self.f_disc])
             
         self.amodel.x = self.x
         self.amodel.u = self.u
@@ -802,7 +818,7 @@ class AbstractController:
         self.ocp.solver_options.exact_hess_dyn = 0   
         self.ocp.solver_options.nlp_solver_type = self.params.solver_type
         self.ocp.solver_options.hpipm_mode = self.params.solver_mode
-        # self.ocp.solver_options.qp_solver = 'PARTIAL_CONDENSING_OSQP'
+        # self.ocp.solver_options.qp_solver = 'FULL_CONDENSING_HPIPM'
         self.ocp.solver_options.nlp_solver_max_iter = self.params.nlp_max_iter
         self.ocp.solver_options.qp_solver_iter_max = self.params.qp_max_iter
         self.ocp.solver_options.globalization = self.params.globalization
@@ -853,7 +869,7 @@ class AbstractController:
         if soft:
             self.ocp.constraints.idxsh_e = np.array([num_nl_e])
 
-            self.ocp.cost.zl_e = np.array([self.params.ws_t])
+            self.ocp.cost.zl_e = np.array([self.params.ws_r])   # FIXME
             self.ocp.cost.zu_e = np.array([0.])
             self.ocp.cost.Zl_e = np.array([0.])
             self.ocp.cost.Zu_e = np.array([0.])
