@@ -29,3 +29,4 @@ ws_t: 1e2
 ws_r: 1e4
 
 obs_flag: true           # activation of Cartesian constraints
+abort_flag: true         # activation of abort mechanism for receding MPC
