@@ -41,8 +41,8 @@ def get_ocp(ocp_name, model, obstacles) -> NaiveOCP:
              'zerovel': TerminalZeroVelOCP,
              'st': SoftTerminalOCP,
              'stwa': SoftTerminalOCP,
-             'htwa': HardTerminalOCP,
-             'receding': HardTerminalOCP }
+             'htwa': SoftTerminalOCP,
+             'receding': SoftTerminalOCP }
     if ocp_name in ocps:
         return ocps[ocp_name](model, obstacles)
     else:
