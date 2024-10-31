@@ -1,11 +1,8 @@
 import time
 import pickle
-import adam.numpy
 import numpy as np
 from tqdm import tqdm
 from scipy.stats import qmc
-from urdf_parser_py.urdf import URDF
-import adam
 from safe_mpc.parser import Parameters, parse_args
 from safe_mpc.abstract import AdamModel, TriplePendulumModel
 from safe_mpc.utils import obstacles, ee_ref, get_ocp
