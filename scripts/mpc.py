@@ -63,8 +63,9 @@ for i in range(params.test_num):
     #     controller.r_last = controller.N
     controller.fails = 0
     j = 0
+    sa_flag = False
     for j in range(params.n_steps):
-        u[j] = controller.step(x_sim[j])
+        u[j], sa_flag = controller.step(x_sim[j])
         # nn_eval[j] = model.nn_func(controller.x_temp[-1])
 
         tau = np.array([model.tau_fun(controller.x_temp[k], controller.u_temp[k]).T for k in range(len(controller.u_temp))])
@@ -113,19 +114,21 @@ for i in range(params.test_num):
 
         stats.append(controller.getTime())
         x_sim[j + 1], _ = model.integrate(x_sim[j], u[j])
+        # Check Safe Abort
+        if sa_flag:
+            x_viable += [controller.getLastViableState()]
+            viable_idx.append(i)
+            print(f'  ABORT at step {j}, u = {u[j]}')
+            break
+
         # Check next state bounds and collision
         if not model.checkStateConstraints(x_sim[j + 1]):   
             print('  FAIL BOUNDS')
             print(f'\tState {j + 1} violation: {np.min(np.vstack((model.x_max - x_sim[j + 1], x_sim[j + 1] - model.x_min)), axis=0)}')
             print(f'\tCurrent controller fails: {controller.fails}')
-            if np.isnan(x_sim[j + 1]).any():
-                x_viable += [controller.getLastViableState()]
-                viable_idx.append(i)
-            else:
-                collisions_idx.append(i)
+            collisions_idx.append(i)
             break
         if not controller.checkCollision(x_sim[j + 1]):
-            # print(f'Obstacle detected at step {j + 1}, with state {x_sim[j + 1]}')
             collisions_idx.append(i)
             print('  FAIL COLLISION')
             break
@@ -141,7 +144,7 @@ for i in range(params.test_num):
     x_sim_list.append(x_sim), u_list.append(u)
 
 unconv_idx = np.setdiff1d(np.arange(params.test_num), 
-                          reduce(np.union1d, (conv_idx, collisions_idx, viable_idx)))
+                          reduce(np.union1d, (conv_idx, collisions_idx, viable_idx))).tolist()
 print('Completed task: ', len(conv_idx))
 print('Collisions: ', len(collisions_idx))
 print('Viable states: ', len(viable_idx))
@@ -163,10 +166,10 @@ for field, t in zip(controller.time_fields, np.quantile(times, 0.99, axis=0)):
 with open(f'{params.DATA_DIR}{model_name}_{cont_name}_mpc.pkl', 'wb') as f:
     pickle.dump({'x': np.asarray(x_sim_list),
                  'u': np.asarray(u_list),
-                 'conv_idx' : np.asarray(conv_idx),
-                 'collisions_idx' : np.asarray(collisions_idx),
-                 'unconv_idx' : np.asarray(unconv_idx),
-                 'viable_idx': np.asarray(viable_idx), 
+                 'conv_idx' : conv_idx,
+                 'collisions_idx' : collisions_idx,
+                 'unconv_idx' : unconv_idx,
+                 'viable_idx': viable_idx, 
                  'x_viable': np.asarray(x_viable)}, f)
 
 # print(f'Total torque violations: {len(tau_viol)}')
