@@ -6,8 +6,6 @@ from functools import reduce
 from safe_mpc.parser import Parameters, parse_args
 from safe_mpc.abstract import AdamModel
 from safe_mpc.utils import obstacles, ee_ref, get_ocp, get_controller
-from safe_mpc.ocp import HardTerminalOCP
-from safe_mpc.controller import RecedingController
 
 
 args = parse_args()
@@ -20,10 +18,15 @@ model = AdamModel(params, n_dofs=4)
 model.ee_ref = ee_ref
 
 ocp_name = args['controller']
+if ocp_name in ['stwa', 'htwa', 'receding']:
+    pass
+else:
+    print('No safe abort for the selected controller')
+    exit()
+
 cont_name = ocp_name
-ocp = get_ocp(ocp_name, model, obstacles)
-controller = get_controller(cont_name, model, obstacles)
-controller.setReference(ee_ref)
+ocp_class = get_ocp(ocp_name, model, obstacles).__class__
+cont_class = get_controller(cont_name, model, obstacles).__class__
 
 data = pickle.load(open(f'{params.DATA_DIR}{model_name}_{cont_name}_guess.pkl', 'rb'))
 xg_list = data['xg']
@@ -48,7 +51,7 @@ if GUESS_FLAG:
     for alpha in tqdm(alphas, desc='Testing different alpha'):
         x_alpha, u_alpha = [], []
         params.alpha = alpha
-        ocp = HardTerminalOCP(model, obstacles)
+        ocp = ocp_class(model, obstacles)
         opti = ocp.instantiateProblem()
 
         for i in tqdm(range(params.test_num), desc='Initial condition', leave=False):
@@ -78,7 +81,7 @@ if GUESS_FLAG:
     for i, alpha in enumerate(alphas):
         x_guess = np.asarray(x_tot[i])
         u_guess = np.asarray(u_tot[i])
-        with open(f'{data_dir}{model_name}_receding_guess_{alpha}.pkl', 'wb') as f:
+        with open(f'{data_dir}{model_name}_receding_{int(alpha)}_guess.pkl', 'wb') as f:
             pickle.dump({'xg': x_guess, 'ug': u_guess}, f)        
     
 
@@ -92,7 +95,7 @@ if MPC_FLAG:
         x_init = x_guess[:,0,:]
 
         # MPC simulation
-        controller = RecedingController(model, obstacles)
+        controller = cont_class(model, obstacles)
         controller.setReference(ee_ref)
 
         x_sim_list, u_list = [], []

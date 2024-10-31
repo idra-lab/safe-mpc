@@ -2,6 +2,7 @@ import os
 import pickle
 import numpy as np
 from tqdm import tqdm
+from functools import reduce
 from safe_mpc.parser import Parameters, parse_args
 from safe_mpc.abstract import AdamModel
 from safe_mpc.utils import obstacles, ee_ref, get_ocp, get_controller
@@ -34,7 +35,7 @@ N_init = np.copy(params.N)
 N_last = 20
 delta = 5
 
-GUESS_FLAG = True
+GUESS_FLAG = False
 MPC_FLAG = True
 
 
@@ -68,28 +69,6 @@ if GUESS_FLAG:
                 ug = np.array([sol.value(ocp.U[k]) for k in range(j)])
             except:
                 print(f'IC: {i}, Horizon: {j}, Failed solution')
-            
-                # print(model.checkRunningConstraints(controller.x_temp, controller.u_temp), \
-                #   model.checkDynamicsConstraints(controller.x_temp, controller.u_temp), \
-                #     np.all([controller.checkCollision(x) for x in controller.x_temp]))
-                # for i, x in enumerate(controller.x_temp):
-                #     t_glob = model.jointToEE(x)
-                #     print(f'Iter {i} : ', end='')
-                #     no_coll = True
-                #     for obs in obstacles:
-                #         if obs['name'] == 'floor':
-                #             diff = t_glob[2] - obs['bounds'][0]
-                #             if diff < 0:
-                #                 print(f'Floor penetration : {diff}')
-                #                 no_coll = False
-                #         elif obs['name'] == 'ball':
-                #             dist = np.sum((t_glob.flatten() - obs['position']) ** 2)
-                #             diff = dist - obs['bounds'][0]
-                #             if diff < 0:
-                #                 print(f'Ball penetration : {diff}')
-                #                 no_coll = False
-                #     if no_coll:
-                #         print('No collision')
 
             # Save the guess for the intesting horizon
             if j % delta == 0:
@@ -102,7 +81,7 @@ if GUESS_FLAG:
     for i, j in enumerate(range(N_init, N_last - 1, -delta)):
         x_guess = np.asarray([x[i] for x in x_tot])
         u_guess = np.asarray([u[i] for u in u_tot])
-        with open(f'{data_dir}{cont_name}_{j}hor_guess.pkl', 'wb') as f:
+        with open(f'{data_dir}{model_name}_{cont_name}_{j}hor_guess.pkl', 'wb') as f:
             pickle.dump({'xg': x_guess, 'ug': u_guess}, f)
 
 
@@ -110,14 +89,15 @@ if GUESS_FLAG:
 
 if MPC_FLAG:
     for k in range(N_init, N_last - 1, -delta):
-        data = pickle.load(open(f'{data_dir}{cont_name}_{k}hor_guess.pkl', 'rb'))
+        data = pickle.load(open(f'{data_dir}{model_name}_{cont_name}_{k}hor_guess.pkl', 'rb'))
         x_guess = data['xg']
         u_guess = data['ug']
         x_init = x_guess[:,0,:]
 
         # MPC simulation 
-        conv, collisions = 0, 0
         controller.resetHorizon(k)
+        conv_idx, collisions_idx, viable_idx = [], [], []
+        x_list, u_list, x_viable = [], [], []
         for i in tqdm(range(params.test_num), desc='MPC simulations', leave=False):
             x0 = x_init[i]
             x_sim = np.empty((params.n_steps + 1, model.nx)) * np.nan
@@ -131,18 +111,33 @@ if MPC_FLAG:
                 pass
             controller.fails = 0
             j = 0
+            sa_flag = False
             for j in range(params.n_steps):
-                u[j] = controller.step(x_sim[j])
+                u[j], sa_flag = controller.step(x_sim[j])
                 x_sim[j + 1], _ = model.integrate(x_sim[j], u[j])
+                if sa_flag:
+                    x_viable += [controller.getLastViableState()]
+                    viable_idx.append(i)
+                    break
+
                 # Check next state bounds and collision
                 if not model.checkStateConstraints(x_sim[j + 1]):
-                    collisions += 1
+                    collisions_idx.append(i) 
                     break
                 if not controller.checkCollision(x_sim[j + 1]):
-                    collisions += 1
+                    collisions_idx.append(i)
                     break
             # Check convergence
             if np.linalg.norm(model.jointToEE(x_sim[-1]).T - ee_ref) < params.tol_conv:
-                conv += 1
+                conv_idx.append(i)
+            x_list.append(x_sim), u_list.append(u)
 
-        print(f'Horizon: {k}, Completed task: {conv}, Collisions: {collisions}')
+        unconv_idx = np.setdiff1d(np.arange(params.test_num), 
+                                  reduce(np.union1d, (conv_idx, collisions_idx, viable_idx))).tolist()
+        
+        mpc_data = {'x': np.asarray(x_list), 'u': np.asarray(u_list), 'x_viable': x_viable, 'viable_idx': viable_idx,
+                    'collisions_idx': collisions_idx, 'unconv_idx': unconv_idx, 'conv_idx': conv_idx}
+        with open(f'{data_dir}{model_name}_{cont_name}_{k}hor_mpc.pkl', 'wb') as f:
+            pickle.dump(mpc_data, f)
+
+        print(f'Horizon: {k}, Completed task: {len(conv_idx)}, Collisions: {len(collisions_idx)}, Viable: {len(viable_idx)}')
