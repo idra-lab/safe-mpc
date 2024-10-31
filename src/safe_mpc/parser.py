@@ -14,10 +14,12 @@ def parse_args():
                         help='Controllers to test. Available: naive, st, stwa, htwa, receding')
     parser.add_argument('-b', '--build', action='store_true',
                         help='Build the code of the embedded controller')
+    parser.add_argument('--alpha', type=float, default=2.0,
+                        help='Alpha parameter for the NN safety factor')
+    parser.add_argument('--horizon', type=int, default=45,
+                        help='Horizon of the optimal control problem')
     parser.add_argument('-a', '--activation', type=str, default='gelu',
                         help='Activation function for the neural network')
-    parser.add_argument('--plot', action='store_true',
-                        help='Plot the results')
     return vars(parser.parse_args())
 
 
@@ -75,6 +77,7 @@ class Parameters:
 
         # For cartesian constraint
         self.obs_flag = bool(parameters['obs_flag'])
+        self.abort_flag = bool(parameters['abort_flag'])
         self.frame_name = 'gripperMover'       #  TODO: dependence on the robot
 
         self.box_lb = np.array([0.45, -0.55, 0.])
