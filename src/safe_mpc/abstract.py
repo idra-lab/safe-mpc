@@ -880,7 +880,13 @@ class AbstractController:
         self.nl_con.append(self.model.nn_model)
 
         self.nl_lb.append(np.array([0.]))
-        self.nl_ub.append(np.array([1e6]))      
+        self.nl_ub.append(np.array([1e6]))  
+
+        num_nl_0 = np.sum([c.shape[0] for c in self.nl_con_0])
+        self.nl_con_0.append(self.model.nn_model)
+
+        self.nl_lb_0.append(np.array([0.]))
+        self.nl_ub_0.append(np.array([1e6]))    
 
         if soft:
             self.ocp.constraints.idxsh = np.array([num_nl])
@@ -890,6 +896,13 @@ class AbstractController:
             self.ocp.cost.zu = np.array([0.])
             self.ocp.cost.Zl = np.array([0.])
             self.ocp.cost.Zu = np.array([0.])
+
+            self.ocp.constraints.idxsh_0 = np.array([num_nl_0])
+
+            self.ocp.cost.zl_0 = np.array([0.])
+            self.ocp.cost.zu_0 = np.array([0.])
+            self.ocp.cost.Zl_0 = np.array([0.])
+            self.ocp.cost.Zu_0 = np.array([0.])
 
     def solve(self, x0):
         # Reset current iterate
@@ -941,7 +954,7 @@ class AbstractController:
         # Copy the last values
         self.x_guess[-1] = np.copy(self.x_guess[-2])
         self.u_guess[-1] = np.copy(self.u_guess[-2])
-        return u
+        return u, False
 
     def step(self, x0):
         pass
