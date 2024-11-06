@@ -22,12 +22,10 @@ if model_name == 'triple_pendulum':
     model = TriplePendulumModel(params)
 else:
     model = AdamModel(params, n_dofs=4)
+    model.ee_ref = ee_ref
 
 cont_name = args['controller']
-# if cont_name == 'naive':
-#     model.setNNmodel()
 controller = get_controller(cont_name, model, obstacles)
-controller.setReference(ee_ref)
 
 data = pickle.load(open(f'{params.DATA_DIR}{model_name}_{cont_name}_guess.pkl', 'rb'))
 x_guess = data['xg']
@@ -41,7 +39,6 @@ stats = []
 EVAL = False
 
 counters = np.zeros(5)
-# for i in tqdm(range(params.test_num), desc='MPC simulations'):
 tau_viol = []
 for i in range(params.test_num):
     # controller.ocp_solver.reset()
@@ -105,7 +102,7 @@ for i in range(params.test_num):
                             if viol + params.tol_obs < 0:
                                 print(f'\t\tCollision {k} with ball: {viol}')
 
-        if cont_name not in ['naive', 'zerovel']:
+        if cont_name not in ['naive', 'zerovel', 'trivial']:
             r = controller.r_last if cont_name == 'receding' else -1
             if not model.checkSafeConstraints(controller.x_temp[r]):
                 counters[3] += 1

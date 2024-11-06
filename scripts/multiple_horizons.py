@@ -21,7 +21,7 @@ ocp_class = get_ocp(ocp_name, model, obstacles).__class__
 
 cont_name = ocp_name
 controller = get_controller(cont_name, model, obstacles)
-controller.setReference(ee_ref)
+# controller.setReference(ee_ref)
 
 data = pickle.load(open(f'{params.DATA_DIR}{model_name}_{cont_name}_guess.pkl', 'rb'))
 xg_list = data['xg']

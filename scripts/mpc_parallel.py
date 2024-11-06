@@ -21,16 +21,16 @@ def simulate_mpc(xg, ug):
     controller.fails = 0
     stats = np.zeros(3, dtype=int)         # [conv, viable, collisions]
     j = 0
+    sa_flag = False 
     for j in range(params.n_steps):
-        u_sim[j] = controller.step(x_sim[j])
+        u_sim[j], sa_flag = controller.step(x_sim[j])
         x_sim[j + 1], _ = model.integrate(x_sim[j], u_sim[j])
+        if sa_flag:
+            stats[1] += 1
+            break
         # Check next state bounds and collision
         if not model.checkStateConstraints(x_sim[j + 1]):
-            if np.isnan(x_sim[j + 1]).any():
-                # x_viable += [controller.getLastViableState()]
-                stats[1] += 1
-            else:
-                stats[2] += 1
+            stats[2] += 1
             break
         if not controller.checkCollision(x_sim[j + 1]):
             stats[2] += 1

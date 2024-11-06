@@ -12,7 +12,7 @@ args = parse_args()
 model_name = args['system']
 params = Parameters(model_name, rti=True)
 # Build the model --> at the moment needed since we modify alpha
-params.build = True                     
+params.build = args['build']                     
 params.act = args['activation']
 model = AdamModel(params, n_dofs=4)
 model.ee_ref = ee_ref
@@ -26,7 +26,7 @@ else:
 
 cont_name = ocp_name
 ocp_class = get_ocp(ocp_name, model, obstacles).__class__
-cont_class = get_controller(cont_name, model, obstacles).__class__
+controller = get_controller(cont_name, model, obstacles)
 
 data = pickle.load(open(f'{params.DATA_DIR}{model_name}_{cont_name}_guess.pkl', 'rb'))
 xg_list = data['xg']
@@ -81,7 +81,7 @@ if GUESS_FLAG:
     for i, alpha in enumerate(alphas):
         x_guess = np.asarray(x_tot[i])
         u_guess = np.asarray(u_tot[i])
-        with open(f'{data_dir}{model_name}_receding_{int(alpha)}_guess.pkl', 'wb') as f:
+        with open(f'{data_dir}{model_name}_{cont_name}_{int(alpha)}_guess.pkl', 'wb') as f:
             pickle.dump({'xg': x_guess, 'ug': u_guess}, f)        
     
 
@@ -89,16 +89,16 @@ if GUESS_FLAG:
 
 if MPC_FLAG:
     for alpha in alphas:
-        data = pickle.load(open(f'{data_dir}{model_name}_receding_guess_{alpha}.pkl', 'rb'))
+        data = pickle.load(open(f'{data_dir}{model_name}_{cont_name}_{int(alpha)}_guess.pkl', 'rb'))
         x_guess = data['xg']
         u_guess = data['ug']
         x_init = x_guess[:,0,:]
 
         # MPC simulation
-        controller = cont_class(model, obstacles)
-        controller.setReference(ee_ref)
-
-        x_sim_list, u_list = [], []
+        params.alpha = alpha
+        
+        x_list, u_list = [], []
+        x_viable = []
         conv_idx, collisions_idx, viable_idx = [], [], []
         for i in tqdm(range(params.test_num), desc='MPC simulations', leave=False):
             x0 = x_init[i]
@@ -113,35 +113,34 @@ if MPC_FLAG:
                 pass
             controller.fails = 0
             j = 0
+            sa_flag = False
             for j in range(params.n_steps):
-                u[j] = controller.step(x_sim[j])
+                u[j], sa_flag = controller.step(x_sim[j])
                 x_sim[j + 1], _ = model.integrate(x_sim[j], u[j])
+                if sa_flag:
+                    x_viable += [controller.getLastViableState()]
+                    viable_idx.append(i)
+                    break
+
                 # Check next state bounds and collision
-                if not model.checkStateConstraints(x_sim[j + 1]):
-                    if np.isnan(x_sim[j + 1]).any():
-                        viable_idx.append(i)
-                    else:
-                        collisions_idx.append(i)
+                if not model.checkStateConstraints(x_sim[j + 1]):                    
+                    collisions_idx.append(i)
                     break
                 if not controller.checkCollision(x_sim[j + 1]):
-                    print(f'Collision at step {j}')
                     collisions_idx.append(i)
                     break
             # Check convergence
             if np.linalg.norm(model.jointToEE(x_sim[-1]).T - ee_ref) < params.tol_conv:
                 conv_idx.append(i)
 
-            x_sim_list.append(x_sim), u_list.append(u)
+            x_list.append(x_sim), u_list.append(u)
 
-        print(f'Alpha: {alpha}, Completed task: {len(conv_idx)}, 
-              Viable, {len(viable_idx)}, Collisions: {len(collisions_idx)}')
+        print(f'Alpha: {alpha}, Completed task: {len(conv_idx)}, ' 
+              f'Viable, {len(viable_idx)}, Collisions: {len(collisions_idx)}')
         unconv_idx = np.setdiff1d(np.arange(params.test_num), 
-                                  reduce(np.union1d, (conv_idx, collisions_idx, viable_idx)))
+                                  reduce(np.union1d, (conv_idx, collisions_idx, viable_idx))).tolist()
     
-        with open(f'{params.DATA_DIR}{model_name}_{cont_name}_mpc.pkl', 'wb') as f:
-            pickle.dump({'x': np.asarray(x_sim_list),
-                        'u': np.asarray(u_list),
-                        'conv_idx' : np.asarray(conv_idx),
-                        'collisions_idx' : np.asarray(collisions_idx),
-                        'unconv_idx' : np.asarray(unconv_idx),
-                        'viable_idx': np.asarray(viable_idx)}, f)
+        mpc_data = {'x': np.asarray(x_list), 'u': np.asarray(u_list), 'x_viable': x_viable, 'viable_idx': viable_idx,
+                    'collisions_idx': collisions_idx, 'unconv_idx': unconv_idx, 'conv_idx': conv_idx}
+        with open(f'{data_dir}{model_name}_{cont_name}_{int(alpha)}_mpc.pkl', 'wb') as f:
+            pickle.dump(mpc_data, f)
