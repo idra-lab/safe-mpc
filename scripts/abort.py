@@ -11,16 +11,19 @@ model_name = args['system']
 params = Parameters(model_name, rti=False)
 params.build = args['build']
 params.act = args['activation']
-params.N = args['horizon']
-params.alpha = args['alpha']
+alpha = args['alpha']
+horizon = args['horizon']
 model = AdamModel(params, n_dofs=4)
 model.setNNmodel()
 cont_name = args['controller']
 controller = SafeBackupController(model, obstacles)
+# controller.resetHorizon(params.N) 
+# NB: the horizon can always be the default one from definition 
+# of the safe set --> N-BRS with N default horizon
 
 # file_prefix = f'{params.DATA_DIR}{model_name}_{cont_name}'
-file_prefix = f'{params.DATA_DIR}mh/{model_name}_{cont_name}_{params.N}hor'
-# file_prefix = f'{params.DATA_DIR}/ma/{model_name}_{cont_name}_{int(params.alpha)}'
+# file_prefix = f'{params.DATA_DIR}mh/{model_name}_{cont_name}_{horizon}hor'
+file_prefix = f'{params.DATA_DIR}/ma/{model_name}_{cont_name}_{int(alpha)}'
 data = pickle.load(open(f'{file_prefix}_mpc.pkl', 'rb'))
 x = data['x']
 u = data['u']
@@ -34,7 +37,7 @@ if cont_name in ['stwa', 'htwa', 'receding']:
     succ = 0
     for i, idx in enumerate(viable_idx):
         print(f'Simulation {i + 1}/{n}')
-        print(f'\tNN output: {model.nn_func(x_viable[i])}')
+        print(f'\tNN output: {model.nn_func(x_viable[i], params.alpha)}')
 
         x_guess = np.full((params.N + 1, model.nx), x_viable[i])
         u_guess = np.zeros((params.N, model.nu))

@@ -54,12 +54,13 @@ if COMPUTE_OPT_TRAJ:
 else:
     costs_list = np.load(f'{params.DATA_DIR}{model_name}_opt_costs.npy')  
 
-cont_names = ['naive', 'zerovel', 'st', 'stwa', 'htwa', 'receding']
+# cont_names = ['naive', 'zerovel', 'st', 'stwa', 'receding']
+cont_names = ['stwa', 'receding']
 X_traj, U_traj, task_not_coll, task_failed = {}, {}, {}, {}
 for c in cont_names:
     # data = open_pickle(f'{model_name}_{c}')
-    data = open_pickle(f'/mh/{model_name}_{c}_{hor}hor')
-    # data = open_pickle(f'/ma/{model_name}_{c}_{int(alpha)}')
+    # data = open_pickle(f'/mh/{model_name}_{c}_{hor}hor')
+    data = open_pickle(f'/ma/{model_name}_{c}_{int(alpha)}')
     X_traj[c] = data['x']
     U_traj[c] = data['u']
     task_not_coll[c] = np.union1d(data['conv_idx'], data['unconv_idx'])
@@ -143,7 +144,7 @@ for c in cont_names:
     res[c]['fails'] = len(task_failed[c])
 
 # file_prefix = f'{params.DATA_DIR}{model_name}'
-file_prefix = f'{params.DATA_DIR}/mh/{model_name}_{hor}hor'
-# file_prefix = f'{params.DATA_DIR}/ma/{model_name}_{int(alpha)}'
-with open(f'{params.DATA_DIR}{model_name}_scores.pkl', 'wb') as f:
+# file_prefix = f'{params.DATA_DIR}{model_name}_{hor}hor'
+file_prefix = f'{params.DATA_DIR}{model_name}_{int(alpha)}'
+with open(f'{file_prefix}_scores.pkl', 'wb') as f:
     pickle.dump(res, f) 
