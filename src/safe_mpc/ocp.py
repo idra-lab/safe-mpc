@@ -117,6 +117,18 @@ class TerminalZeroVelOCP(NaiveOCP):
     def additionalSetting(self):
         self.opti.subject_to(self.X[-1][self.nq:] == 0.)
 
+class AccBoundsOCP(NaiveOCP):
+    def __init__(self, model, obstacles=None):
+        super().__init__(model, obstacles)
+
+    def additionalSetting(self):
+        nq = self.model.nq
+        ddq_max = np.ones(self.model.nv) * 10.
+        dq_min = - self.X[-1][nq:] ** 2 / ddq_max + self.X[-1][:nq]
+        dq_max = self.X[-1][nq:] ** 2 / ddq_max + self.X[-1][:nq]
+        self.opti.subject_to(dq_min >= self.model.x_min[:nq])        
+        self.opti.subject_to(dq_max <= self.model.x_max[:nq])
+
 
 class HardTerminalOCP(NaiveOCP):
     def __init__(self, model, obstacles=None):
@@ -124,7 +136,7 @@ class HardTerminalOCP(NaiveOCP):
 
     def additionalSetting(self):
         self.model.setNNmodel()
-        self.opti.subject_to(self.model.nn_func(self.X[-1]) >= 0.)
+        self.opti.subject_to(self.model.nn_func(self.X[-1], self.params.alpha) >= 0.)
 
 
 class SoftTerminalOCP(NaiveOCP):
@@ -134,7 +146,7 @@ class SoftTerminalOCP(NaiveOCP):
     def additionalSetting(self):
         s_N = self.opti.variable(1)
         self.model.setNNmodel()
-        self.opti.subject_to(self.model.nn_func(self.X[-1]) + s_N >= 0.)
+        self.opti.subject_to(self.model.nn_func(self.X[-1], self.params.alpha) + s_N >= 0.)
         self.opti.subject_to(
             self.opti.bounded(0., s_N, 1e6)
         )
