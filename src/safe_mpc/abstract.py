@@ -76,7 +76,7 @@ class AdamModel:
         self.x = MX.sym("x", nq * 2)
         self.x_dot = MX.sym("x_dot", nq * 2)
         self.u = MX.sym("u", nq)
-        self.p = MX.sym("p", 3)     # Cartesian EE position
+        self.p = MX.sym("p", 1)     # Safety margin for the NN model
         # Double integrator
         self.f_disc = vertcat(
             self.x[:nq] + params.dt * self.x[nq:] + 0.5 * params.dt**2 * self.u,
@@ -149,7 +149,7 @@ class AdamModel:
         return self.checkStateConstraints(x) and self.checkTorqueConstraints(tau)
 
     def checkSafeConstraints(self, x):
-        return self.nn_func(x) >= - self.params.tol_nn 
+        return self.nn_func(x, self.params.alpha) >= - self.params.tol_nn 
     
     def integrate(self, x, u):
         x_next = np.zeros(self.nx)
@@ -209,8 +209,8 @@ class AdamModel:
                                       device='cpu',
                                       name=f'{self.amodel.name}_model',
                                       build_dir=f'{self.params.GEN_DIR}nn_{self.amodel.name}')
-        self.nn_model = self.l4c_model(state) * (100 - self.params.alpha) / 100 - vel_norm
-        self.nn_func = Function('nn_func', [self.x], [self.nn_model])
+        self.nn_model = self.l4c_model(state) * (100 - self.p) / 100 - vel_norm
+        self.nn_func = Function('nn_func', [self.x, self.p], [self.nn_model])
 
 class TriplePendulumModel(AdamModel):
     ''' Triple pendulum model from the Lagrangian formulation '''
@@ -728,18 +728,18 @@ class AbstractController:
             self.ocp.cost.yref_e = self.x_ref
 
         else:
-            self.Q = 1e2 * np.eye(self.model.np)
+            self.Q = 1e2 * np.eye(3)
             self.R = 5e-3 * np.eye(self.model.nu) 
 
             self.ocp.cost.cost_type = 'EXTERNAL'
             self.ocp.cost.cost_type_e = 'EXTERNAL'
 
             t_glob = self.model.t_glob
-            delta = t_glob - self.model.p
+            delta = t_glob - self.model.ee_ref
             track_ee = delta.T @ self.Q @ delta 
             self.ocp.model.cost_expr_ext_cost = track_ee + self.model.u.T @ self.R @ self.model.u
             self.ocp.model.cost_expr_ext_cost_e = track_ee
-            self.ocp.parameter_values = np.zeros(self.model.np)
+            self.ocp.parameter_values = np.array([self.params.alpha])
 
         # Constraints
         self.ocp.constraints.lbx_0 = self.model.x_min
@@ -916,11 +916,11 @@ class AbstractController:
             self.ocp_solver.set(i, 'x', self.x_guess[i])
             self.ocp_solver.set(i, 'u', self.u_guess[i])
             if not self.model.amodel.name == 'triple_pendulum':
-                self.ocp_solver.set(i, 'p', self.model.ee_ref)
+                self.ocp_solver.set(i, 'p', self.params.alpha)
 
         self.ocp_solver.set(self.N, 'x', self.x_guess[-1])
         if not self.model.amodel.name == 'triple_pendulum':
-            self.ocp_solver.set(self.N, 'p', self.model.ee_ref)
+            self.ocp_solver.set(self.N, 'p', self.params.alpha)
 
         # Solve the OCP
         status = self.ocp_solver.solve()
