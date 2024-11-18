@@ -289,6 +289,7 @@ class TriplePendulumModel(AdamModel):
 
         # Acceleration with forward dynamics
         f_expl = vertcat(
+            self.x[nq:],
             (
                 -params.g
                 * params.l1

@@ -33,7 +33,7 @@ class NaiveOCP:
             x_ref[:self.model.nq] = np.pi
             x_ref[0] = self.params.q_max - 0.05
         else:
-            Q = 1e2 * np.eye(self.model.np)
+            Q = 1e2 * np.eye(3)        
             R = 5e-3 * np.eye(self.model.nu)
             ee_ref = model.ee_ref
         dist_b = []
