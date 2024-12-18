@@ -5,6 +5,7 @@
 *.pdf
 *.zip
 *.json
+*.txt
 generated/*
 nn_models/*
 data/*
