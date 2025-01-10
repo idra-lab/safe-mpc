@@ -41,6 +41,7 @@ def get_ocp(ocp_name, model, obstacles) -> NaiveOCP:
              'zerovel': TerminalZeroVelOCP,
              'st': SoftTerminalOCP,
              'stwa': SoftTerminalOCP,
+             'terminal': SoftTerminalOCP,
              'htwa': SoftTerminalOCP,
              'receding': SoftTerminalOCP,
              'trivial': AccBoundsOCP }
@@ -54,6 +55,7 @@ def get_controller(cont_name, model, obstacles) -> AbstractController:
                     'zerovel': TerminalZeroVelocity,
                     'st': STController,
                     'stwa': STWAController,
+                    'terminal': TerminalFirstAbort,
                     'htwa': HTWAController,
                     'receding': RecedingController,
                     'trivial': RecedingAccBounds }
@@ -79,7 +81,7 @@ class RobotVisualizer:
         
         self.viz = pin.visualize.MeshcatVisualizer(rmodel_red, geom_red[0], geom_red[1])
         self.viz.initViewer(loadModel=True, open=True)
-        self.viz.setCameraPosition(np.array([1., 1., 1.]))
+        # self.viz.setCameraPosition(np.array([1., 1., 1.]))
 
         # Set the end-effector target
         ee_radius = 0.075   
