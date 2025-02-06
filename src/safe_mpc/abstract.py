@@ -113,7 +113,8 @@ class AdamModel:
         joint_upper = np.array([joint.limit.upper for joint in robot_joints])
         joint_velocity = np.array([joint.limit.velocity for joint in robot_joints]) 
         # joint_effort = np.array([joint.limit.effort for joint in robot_joints]) 
-        joint_effort = np.array([2., 23., 10., 4.])
+        joint_effort = np.array([2., 23., 10., 4., 4., 4.])
+        joint_effort = joint_effort[:nq]
 
         self.tau_min = - joint_effort
         self.tau_max = joint_effort
@@ -191,18 +192,16 @@ class AdamModel:
         else:
             ub = 1
 
-        model = NeuralNetwork(self.nx, 256, 1, act_fun, ub)
-        # print(model)
-        # print(f'{self.params.NN_DIR}{self.nq}dof_{act}{self.obs_string}.pt')
-        nn_data = torch.load(f'{self.params.NN_DIR}{self.nq}dof_{act}{self.obs_string}.pt',
+        model = NeuralNetwork(8, 256, 1, act_fun, ub)
+        nn_data = torch.load(f'{self.params.NN_DIR}4dof_{act}{self.obs_string}.pt',
                              map_location=torch.device('cpu'))
         model.load_state_dict(nn_data['model'])
 
         x_cp = deepcopy(self.x)
         x_cp[self.nq] += self.params.eps
-        vel_norm = norm_2(x_cp[self.nq:])
-        pos = (x_cp[:self.nq] - nn_data['mean']) / nn_data['std']
-        vel_dir = x_cp[self.nq:] / vel_norm
+        vel_norm = norm_2(x_cp[self.nq:self.nq + 4])
+        pos = (x_cp[:4] - nn_data['mean']) / nn_data['std']
+        vel_dir = x_cp[self.nq:self.nq + 4] / vel_norm
         state = vertcat(pos, vel_dir)
 
         self.l4c_model = l4c.L4CasADi(model,

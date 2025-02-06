@@ -42,12 +42,15 @@ while succ < num_ics:
 
         try:
             sol = opti.solve()
+            # print(sol.value(opti.g[-1]))
             xg = np.array([sol.value(ocp.X[k]) for k in range(params.N + 1)])
             ug = np.array([sol.value(ocp.U[k]) for k in range(params.N)])
             x_guess.append(xg), u_guess.append(ug)
             succ += 1
         except:
             sol = opti.debug
+            # print("Terminal state: ", sol.value(ocp.X[-1]))
+            # print("Terminal constraint: ", sol.value(opti.g[-1]))
             fails += 1
     else:
         skip_ics += 1
