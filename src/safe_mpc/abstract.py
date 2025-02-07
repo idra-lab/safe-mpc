@@ -50,7 +50,7 @@ class OldNeuralNetwork(nn.Module):
 
 
 class AdamModel:
-    def __init__(self, params, n_dofs=False):
+    def __init__(self, params, n_dofs):
         self.params = params
         self.amodel = AcadosModel()
         # Robot dynamics with Adam (IIT)

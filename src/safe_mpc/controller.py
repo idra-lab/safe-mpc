@@ -50,108 +50,6 @@ class TerminalZeroVelocity(NaiveController):
         self.ocp.constraints.idxbx_e = np.arange(self.model.nx)
 
 
-class RecedingAccBounds(NaiveController):
-    """ MPC with acceleration bounds """
-    def __init__(self, model, obstacles=None):
-        super().__init__(model, obstacles)  
-        self.abort_flag = self.params.abort_flag
-
-    def additionalSetting(self):
-        num_nl_e = np.sum([c.shape[0] for c in self.nl_con_e])
-        num_nl = np.sum([c.shape[0] for c in self.nl_con])
-        num_nl_0 = np.sum([c.shape[0] for c in self.nl_con_0])
-        # Acc bounds constraints
-        nq = self.model.nq
-        self.ddq_max = np.ones(self.model.nv) * 10. 
-        self.dq_min = - self.model.x[nq:] ** 2 / self.ddq_max + self.model.x[:nq]       # >= q_min
-        self.dq_max = self.model.x[nq:] ** 2 / self.ddq_max + self.model.x[:nq]         # <= q_max
-
-        self.min_vel = Function('min_vel', [self.model.x], [self.dq_min])
-        self.max_vel = Function('max_vel', [self.model.x], [self.dq_max])
-
-        # Soft terminal constraint
-        self.nl_con_e.append(self.dq_min)
-        self.nl_lb_e.append(self.model.x_min[:nq])
-        self.nl_ub_e.append(np.ones(nq) * 1e6)
-
-        self.nl_con_e.append(self.dq_max)
-        self.nl_lb_e.append(-np.ones(nq) * 1e6)
-        self.nl_ub_e.append(self.model.x_max[:nq])
-
-        self.ocp.constraints.idxsh_e = np.arange(nq * 2) + num_nl_e
-        self.ocp.cost.zl_e = np.ones(nq * 2) * self.params.ws_t
-        self.ocp.cost.zu_e = np.zeros(nq * 2)
-        self.ocp.cost.Zl_e = np.zeros(nq * 2)
-        self.ocp.cost.Zu_e = np.zeros(nq * 2)
-
-        # Hard receding constraints
-        self.nl_con_0.append(self.dq_min)
-        self.nl_lb_0.append(-np.ones(nq) * 1e6)
-        self.nl_ub_0.append(np.ones(nq) * 1e6)
-        self.nl_con_0.append(self.dq_max)
-        self.nl_lb_0.append(-np.ones(nq) * 1e6)
-        self.nl_ub_0.append(np.ones(nq) * 1e6) 
-
-        self.idx_h_0 = np.arange(nq * 2) + num_nl_0
-        self.nl_con.append(self.dq_min)
-        self.nl_lb.append(-np.ones(nq) * 1e6)
-        self.nl_ub.append(np.ones(nq) * 1e6)
-        self.nl_con.append(self.dq_max)
-        self.nl_lb.append(-np.ones(nq) * 1e6)
-        self.nl_ub.append(np.ones(nq) * 1e6)
-
-        self.idx_h = np.arange(nq * 2) + num_nl
-        self.idx_h_e = np.arange(nq * 2) + num_nl_e
-        # dq_min lower bounded, dq_max upper bounded
-        self.lh_rec = np.hstack([self.model.x_min[:nq], -np.ones(nq) * 1e6])
-        self.uh_rec = np.hstack([np.ones(nq) * 1e6, self.model.x_max[:nq]])
-
-    def checkVelocityViability(self, x):
-        q_min = self.model.x_min[:self.model.nq]
-        q_max = self.model.x_max[:self.model.nq]
-        return np.all(self.min_vel(x) >= q_min) and np.all(self.max_vel(x) <= q_max)
-
-    def step(self, x):
-        # Terminal constraint --> already set, Receding constraint
-        lh, uh = self.ocp.constraints.lh, self.ocp.constraints.uh
-        if self.r == self.N:
-            lh_r, uh_r = np.copy(self.ocp.constraints.lh_e), np.copy(self.ocp.constraints.uh_e)
-            lh_r[self.idx_h_e], uh_r[self.idx_h_e] = self.lh_rec, self.uh_rec
-        else:
-            lh_r, uh_r = np.copy(lh), np.copy(uh)  
-            lh_r[self.idx_h], uh_r[self.idx_h] = self.lh_rec, self.uh_rec  
-        self.ocp_solver.constraints_set(self.r, "lh", lh_r)
-        self.ocp_solver.constraints_set(self.r, "uh", uh_r)
-        for i in range(self.N):
-            if i != self.r:
-                # No constraints on other running states
-                self.ocp_solver.constraints_set(i, "lh", lh)
-                self.ocp_solver.constraints_set(i, "uh", uh)
-        # Solve the OCP
-        status = self.solve(x)
-
-        if self.abort_flag:
-            self.r -= 1          
-        else:
-            if self.r > 0:
-                self.r -= 1
-        for i in range(self.r + 2, self.N + 1):
-            if self.checkVelocityViability(self.x_temp[i]):
-                self.r = i - 1
-
-        if self.r == 0 and self.abort_flag:
-            self.x_viable = np.copy(self.x_guess[1])
-            return self.u_guess[0], True
-
-        if status == 0 and self.model.checkStateConstraints(self.x_temp)  \
-                and np.all([self.checkCollision(x) for x in self.x_temp]):
-            self.fails = 0
-        else:
-            self.fails += 1
-            
-        return self.provideControl()
-    
-
 class STController(NaiveController):
     def __init__(self, model, obstacles):
         super().__init__(model, obstacles)
@@ -198,26 +96,6 @@ class HTWAController(STWAController):
         self.terminalConstraint(soft=False)
 
 
-class TerminalFirstAbort(HTWAController):
-    def __init__(self, model, obstacles):
-        super().__init__(model, obstacles)
-
-    def step(self, x):
-        if self.fails == 0:
-            status = self.solve(x)
-            if status == 0 and self.model.checkStateConstraints(self.x_temp) and \
-                    np.all([self.checkCollision(x) for x in self.x_temp]):
-                self.fails = 0
-            else:
-                self.x_viable = np.copy(self.x_guess[-2])       
-                self.fails += 1
-        else:
-            self.fails += 1
-        if self.fails == self.N - 1:
-            return self.u_guess[-1], True
-        return self.provideControl()
-
-
 class RecedingController(STWAController):
     def __init__(self, model, obstacles):
         super().__init__(model, obstacles)
@@ -231,7 +109,6 @@ class RecedingController(STWAController):
         self.runningConstraint()
 
     def step(self, x):
-        # FIXME: apparently it goes ahead even if fails >= N
         # Terminal constraint
         self.ocp_solver.cost_set(self.N, "zl", self.params.ws_t * np.ones((1,)))
         # Receding constraint
@@ -271,6 +148,58 @@ class RecedingController(STWAController):
             self.fails += 1
             
         return self.provideControl()
+    
+
+class RealReceding(STWAController):
+    def __init__(self, model, obstacles):
+        super().__init__(model, obstacles)
+        self.r = self.N
+        self.x_viable = np.copy(self.x_guess[-1])
+        self.abort_flag = self.params.abort_flag
+
+    def additionalSetting(self):
+        self.terminalConstraint()
+        
+    def step(self, x):
+        # Terminal constraint
+        self.ocp_solver.cost_set(self.N, "zl", self.params.ws_t * np.ones((1,)))
+        # Receding constraint --> bound the receding state
+        if self.r < self.N:
+            self.ocp_solver.constraints_set(self.r, "lbx", self.x_viable)
+            self.ocp_solver.constraints_set(self.r, "ubx", self.x_viable)
+        for i in range(self.N):
+            if i != self.r:
+                # No constraints on other running states
+                self.ocp_solver.constraints_set(i, "lbx", self.model.x_min) 
+                self.ocp_solver.constraints_set(i, "ubx", self.model.x_max)
+
+        # Solve the OCP
+        status = self.solve(x)
+
+        if self.abort_flag:
+            self.r -= 1          
+        else:
+            if self.r > 0:
+                self.r -= 1
+
+        if self.r == 0 and self.abort_flag:
+            self.x_viable = np.copy(self.x_guess[1])
+            # Put back the receding constraint on last state for next iteration after abort
+            self.r = self.N
+            return self.u_guess[0], True
+        
+        if status == 0 and self.model.checkStateConstraints(self.x_temp)  \
+                and np.all([self.checkCollision(x) for x in self.x_temp]):
+            self.fails = 0
+            for i in range(self.r + 2, self.N + 1):
+                if self.model.checkSafeConstraints(self.x_temp[i]):
+                    self.r = i - 1
+                    self.x_viable = np.copy(self.x_temp[i])
+        else:
+            self.fails += 1
+            
+        return self.provideControl()
+
 
 class SafeBackupController(AbstractController):
     def __init__(self, model, obstacles):

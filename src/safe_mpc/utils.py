@@ -40,11 +40,9 @@ def get_ocp(ocp_name, model, obstacles) -> NaiveOCP:
     ocps = { 'naive': NaiveOCP,
              'zerovel': TerminalZeroVelOCP,
              'st': SoftTerminalOCP,
-             'stwa': SoftTerminalOCP,
-             'terminal': SoftTerminalOCP,
              'htwa': SoftTerminalOCP,
-             'receding': SoftTerminalOCP,
-             'trivial': AccBoundsOCP }
+             'receding': SoftTerminalOCP, 
+             'real': SoftTerminalOCP}
     if ocp_name in ocps:
         return ocps[ocp_name](model, obstacles)
     else:
@@ -54,11 +52,9 @@ def get_controller(cont_name, model, obstacles) -> AbstractController:
     controllers = { 'naive': NaiveController,
                     'zerovel': TerminalZeroVelocity,
                     'st': STController,
-                    'stwa': STWAController,
-                    'terminal': TerminalFirstAbort,
                     'htwa': HTWAController,
                     'receding': RecedingController,
-                    'trivial': RecedingAccBounds }
+                    'real': RealReceding }
     if cont_name in controllers:
         return controllers[cont_name](model, obstacles)
     else:
