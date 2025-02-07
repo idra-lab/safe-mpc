@@ -8,7 +8,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('-s', '--system', type=str, default='z1',
                         help='Systems to test. Available: pendulum, double_pendulum, ur5, z1')
-    parser.add_argument('-d', '--dofs', type=int, default=False, nargs='?',
+    parser.add_argument('-d', '--dofs', type=int, default=4,
                         help='Number of desired degrees of freedom of the system')
     parser.add_argument('-c', '--controller', type=str, default='naive',
                         help='Controllers to test. Available: naive, st, stwa, htwa, receding')

@@ -9,10 +9,10 @@ model_name = args['system']
 params = Parameters(model_name, rti=True)
 params.build = True
 params.act = args['activation']
-model = AdamModel(params, n_dofs=4)
+model = AdamModel(params, args['dofs'])
 model.ee_ref = ee_ref
 
-controllers = ['naive', 'zerovel', 'st', 'terminal', 'htwa', 'receding']
+controllers = ['naive', 'zerovel', 'st', 'htwa', 'receding', 'real']
 for cont in controllers:
     # Build each controller
     print(f'\n*** Building {cont.upper()} controller *** \n')

@@ -13,7 +13,7 @@ params = Parameters(model_name, rti=False)
 params.act = args['activation']
 params.N = args['horizon']
 params.alpha = args['alpha']
-model = AdamModel(params, n_dofs=4)
+model = AdamModel(params, args['dofs'])
 model.ee_ref = ee_ref
 
 ocp_name = args['controller']

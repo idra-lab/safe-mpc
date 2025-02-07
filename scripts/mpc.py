@@ -7,7 +7,7 @@ from safe_mpc.utils import obstacles, ee_ref, get_controller
 from safe_mpc.controller import SafeBackupController
 
 
-CALLBACK = False
+CALLBACK = True
 
 args = parse_args()
 model_name = args['system']
@@ -15,7 +15,7 @@ params = Parameters(model_name, rti=True)
 params.build = args['build']
 params.act = args['activation']
 params.alpha = args['alpha']
-model = AdamModel(params, n_dofs=4)
+model = AdamModel(params, args['dofs'])
 model.ee_ref = ee_ref
 nq = model.nq
 
