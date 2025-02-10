@@ -62,7 +62,8 @@ class Parameters:
         self.alpha_reduction = float(parameters['alpha_reduction'])
         self.alpha_min = float(parameters['alpha_min'])
         self.levenberg_marquardt = float(parameters['levenberg_marquardt'])
-
+        self.ext_flag = parameters['ext_flag']
+        
         self.tol_x = float(parameters['tol_x'])
         self.tol_tau = float(parameters['tol_tau'])
         self.tol_dyn = float(parameters['tol_dyn'])

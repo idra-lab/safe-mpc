@@ -13,6 +13,7 @@ qp_max_iter: 200
 alpha_reduction: 0.3
 alpha_min: 1e-2
 levenberg_marquardt: 1e0  # 1e-3 in general, 1e-1 for z1 guess, 1e0 for z1 mpc
+ext_flag: '-O2'
 
 tol_x: 5e-3               # state -4
 tol_tau: 1e-6             # torque

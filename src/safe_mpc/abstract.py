@@ -351,6 +351,7 @@ class AbstractController:
         self.ocp.solver_options.qp_solver_iter_max = self.params.qp_max_iter
         self.ocp.solver_options.globalization = self.params.globalization
         self.ocp.solver_options.levenberg_marquardt = self.params.levenberg_marquardt
+        self.ocp.solver_options.ext_fun_compile_flags = self.params.ext_flag
         # self.ocp.solver_options.tol = 1e-4
         # self.ocp.solver_options.qp_tol = 1e-4
         # self.ocp.solver_options.regularize_method = 'PROJECT'   # Maybe is a good idea if exact hessian is not used
