@@ -206,6 +206,10 @@ class SafeBackupController(AbstractController):
         super().__init__(model, obstacles)
 
     def additionalSetting(self):
+        self.N = 45
+        self.ocp.solver_options.tf = self.params.dt * self.N
+        self.ocp.dims.N = self.N
+
         # Linear LS cost (zero cost)
         self.ocp.cost.cost_type = 'LINEAR_LS'        
         self.ocp.cost.cost_type_e = 'LINEAR_LS'
