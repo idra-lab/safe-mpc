@@ -24,7 +24,7 @@ def parse_args():
 
 
 class Parameters:
-    def __init__(self, urdf_name, rti=True):
+    def __init__(self, urdf_name, rti=True, filename=None):
         self.urdf_name = urdf_name
         # Define all the useful paths
         self.PKG_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -40,7 +40,10 @@ class Parameters:
         else:
             self.robot_urdf = f'{self.ROBOTS_DIR}/{urdf_name}_description/urdf/{urdf_name}.urdf'
 
-        parameters = yaml.load(open(self.ROOT_DIR + '/config.yaml'), Loader=yaml.FullLoader)
+        if filename is None:
+            parameters = yaml.load(open(self.ROOT_DIR + '/config.yaml'), Loader=yaml.FullLoader)
+        else:
+            parameters = yaml.load(open(filename), Loader=yaml.FullLoader)
 
         self.test_num = int(parameters['test_num'])
         self.n_steps = int(parameters['n_steps'])
