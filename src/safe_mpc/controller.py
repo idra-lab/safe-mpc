@@ -1,7 +1,7 @@
 import numpy as np
 import scipy.linalg as lin
 from .abstract import AbstractController
-from casadi import Function
+from casadi import Function, norm_2
 
 
 class NaiveController(AbstractController):
@@ -179,7 +179,7 @@ class STWAController(STController):
         else:
             if self.fails == 0:
                 self.x_viable = np.copy(self.x_guess[-2])       
-            if self.fails >= self.N:
+            if self.fails == self.N - 1:
                 return self.u_guess[0], True
             self.fails += 1
         return self.provideControl()
@@ -198,6 +198,26 @@ class HTWAController(STWAController):
         self.terminalConstraint(soft=False)
 
 
+class TerminalFirstAbort(HTWAController):
+    def __init__(self, model, obstacles):
+        super().__init__(model, obstacles)
+
+    def step(self, x):
+        if self.fails == 0:
+            status = self.solve(x)
+            if status == 0 and self.model.checkStateConstraints(self.x_temp) and \
+                    np.all([self.checkCollision(x) for x in self.x_temp]):
+                self.fails = 0
+            else:
+                self.x_viable = np.copy(self.x_guess[-2])       
+                self.fails += 1
+        else:
+            self.fails += 1
+        if self.fails == self.N - 1:
+            return self.u_guess[-1], True
+        return self.provideControl()
+
+
 class RecedingController(STWAController):
     def __init__(self, model, obstacles):
         super().__init__(model, obstacles)
@@ -211,11 +231,16 @@ class RecedingController(STWAController):
         self.runningConstraint()
 
     def step(self, x):
+        # FIXME: apparently it goes ahead even if fails >= N
         # Terminal constraint
         self.ocp_solver.cost_set(self.N, "zl", self.params.ws_t * np.ones((1,)))
         # Receding constraint
+        # lh = self.ocp.constraints.lh
+        # lh_rec = np.copy(lh)
+        # lh[-1] = -1e6
         self.ocp_solver.cost_set(self.r, "zl", self.params.ws_r * np.ones((1,)))
-        # self.ocp_solver.constraints_set(self.r, "lh", lh_rec)
+        # if self.r < self.N:
+        #     self.ocp_solver.constraints_set(self.r, "lh", lh_rec)
         for i in range(self.N):
             if i != self.r:
                 # No constraints on other running states
@@ -229,17 +254,19 @@ class RecedingController(STWAController):
         else:
             if self.r > 0:
                 self.r -= 1
-        for i in range(self.r + 2, self.N + 1):
-            if self.model.checkSafeConstraints(self.x_temp[i]):
-                self.r = i - 1
 
         if self.r == 0 and self.abort_flag:
             self.x_viable = np.copy(self.x_guess[1])
+            # Put back the receding constraint on last state for next iteration after abort
+            self.r = self.N
             return self.u_guess[0], True
 
         if status == 0 and self.model.checkStateConstraints(self.x_temp)  \
                 and np.all([self.checkCollision(x) for x in self.x_temp]):
             self.fails = 0
+            for i in range(self.r + 2, self.N + 1):
+                if self.model.checkSafeConstraints(self.x_temp[i]):
+                    self.r = i - 1
         else:
             self.fails += 1
             
@@ -250,25 +277,22 @@ class SafeBackupController(AbstractController):
         super().__init__(model, obstacles)
 
     def additionalSetting(self):
-        # Linear LS cost
+        # Linear LS cost (zero cost)
         self.ocp.cost.cost_type = 'LINEAR_LS'        
         self.ocp.cost.cost_type_e = 'LINEAR_LS'
 
-        self.Q = np.zeros((self.model.nx, self.model.nx))
-        # Penalize only the velocity
-        self.Q[self.model.nq:, self.model.nq:] = np.eye(self.model.nv) * self.params.q_dot_gain
+        # self.Q = np.zeros((self.model.nx, self.model.nx))
+        # self.R = np.zeros((self.model.nu, self.model.nu))
 
-        self.ocp.cost.W = lin.block_diag(self.Q, self.R)
-        self.ocp.cost.W_e = self.Q
+        # self.ocp.cost.W = lin.block_diag(self.Q, self.R)
+        # self.ocp.cost.W_e = self.Q
 
-        self.ocp.cost.Vx = np.zeros((self.model.ny, self.model.nx))
-        self.ocp.cost.Vx[:self.model.nx, :self.model.nx] = np.eye(self.model.nx)
-        self.ocp.cost.Vu = np.zeros((self.model.ny, self.model.nu))
-        self.ocp.cost.Vu[self.model.nx:, :self.model.nu] = np.eye(self.model.nu)
-        self.ocp.cost.Vx_e = np.eye(self.model.nx)
+        # self.ocp.cost.Vx = np.zeros((self.model.ny, self.model.nx))
+        # self.ocp.cost.Vu = np.zeros((self.model.ny, self.model.nu))
+        # self.ocp.cost.Vx_e = np.zeros((self.model.nx, self.model.nx))
 
-        self.ocp.cost.yref = np.zeros(self.model.ny)
-        self.ocp.cost.yref_e = np.zeros(self.model.nx)
+        # self.ocp.cost.yref = np.zeros(self.model.ny)
+        # self.ocp.cost.yref_e = np.zeros(self.model.nx)
 
         # Terminal constraint --> zero velocity
         q_fin_lb = np.hstack([self.model.x_min[:self.model.nq], np.zeros(self.model.nv)])
@@ -277,3 +301,8 @@ class SafeBackupController(AbstractController):
         self.ocp.constraints.lbx_e = q_fin_lb
         self.ocp.constraints.ubx_e = q_fin_ub
         self.ocp.constraints.idxbx_e = np.arange(self.model.nx)
+
+        # Options
+        self.ocp.solver_options.ext_fun_compile_flags = '-O3'
+        self.ocp.solver_options.levenberg_marquardt = 0.   # Set Default
+        self.ocp.solver_options.nlp_solver_max_iter = 20

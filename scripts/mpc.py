@@ -1,33 +1,32 @@
 import pickle
 import numpy as np
-from tqdm import tqdm
 from functools import reduce
 from safe_mpc.parser import Parameters, parse_args
-from safe_mpc.abstract import AdamModel, TriplePendulumModel
+from safe_mpc.abstract import AdamModel
 from safe_mpc.utils import obstacles, ee_ref, get_controller
+from safe_mpc.controller import SafeBackupController
 
 
-def convergenceCriteria(x, mask=None):
-    if mask is None:
-        mask = np.ones(model.nx)
-    return np.linalg.norm(np.dot(mask, x - controller.x_ref)) < params.tol_conv
-
+CALLBACK = False
 
 args = parse_args()
 model_name = args['system']
 params = Parameters(model_name, rti=True)
 params.build = args['build']
 params.act = args['activation']
-if model_name == 'triple_pendulum':
-    model = TriplePendulumModel(params)
-else:
-    model = AdamModel(params, n_dofs=4)
-    model.ee_ref = ee_ref
+params.alpha = args['alpha']
+model = AdamModel(params, n_dofs=4)
+model.ee_ref = ee_ref
+nq = model.nq
 
 cont_name = args['controller']
 controller = get_controller(cont_name, model, obstacles)
+safe_ocp = SafeBackupController(model, obstacles)
+horizon = args['horizon']
+controller.resetHorizon(horizon)
 
-data = pickle.load(open(f'{params.DATA_DIR}{model_name}_{cont_name}_guess.pkl', 'rb'))
+# data = pickle.load(open(f'{params.DATA_DIR}{model_name}_{cont_name}_guess.pkl', 'rb'))
+data = pickle.load(open(f'{params.DATA_DIR}{model_name}_{cont_name}_{horizon}hor_{int(params.alpha)}sm_guess.pkl', 'rb'))
 x_guess = data['xg']
 u_guess = data['ug']
 x_init = x_guess[:,0,:]
@@ -40,13 +39,12 @@ EVAL = False
 
 counters = np.zeros(5)
 tau_viol = []
+kp, kd = 0.1, 1e2
 for i in range(params.test_num):
-    # controller.ocp_solver.reset()
     print(f'Simulation {i + 1}/{params.test_num}')
     x0 = x_init[i]
     x_sim = np.empty((params.n_steps + 1, model.nx)) * np.nan
     u = np.empty((params.n_steps, model.nu)) * np.nan
-    nn_eval = np.empty(params.n_steps) * np.nan
     x_sim[0] = x0
 
     controller.setGuess(x_guess[i], u_guess[i])
@@ -55,15 +53,46 @@ for i in range(params.test_num):
         controller.r_last = controller.N
     except:
         pass
-    # if controller.ocp_name == 'receding':
-    #     controller.r = controller.N
-    #     controller.r_last = controller.N
     controller.fails = 0
     j = 0
+    ja = 0
     sa_flag = False
     for j in range(params.n_steps):
-        u[j], sa_flag = controller.step(x_sim[j])
-        # nn_eval[j] = model.nn_func(controller.x_temp[-1])
+        if sa_flag and ja < safe_ocp.N:
+            # Follow safe abort trajectory (PD to stabilize at the end)
+            u[j] = u_abort[ja]
+            ja += 1
+            # if ja < safe_ocp.N:
+            #     u[j] = u_abort[ja]
+            #     ja += 1
+            # else:
+            #     u[j] = np.zeros(model.nu)
+            #     u[j] = kp * (x_abort[-1, :nq] - x_sim[j, :nq]) - kd * x_sim[j, nq:]
+        else:   
+            u[j], sa_flag = controller.step(x_sim[j])
+            # Check Safe Abort
+            if sa_flag:
+                x_viable += [controller.getLastViableState()]
+                if CALLBACK:
+                    print(f'  ABORT at step {j}, x = {x_viable[-1]}')
+                    print(f'  NN output at abort with current alpha {int(params.alpha)}: ' 
+                        f'{model.nn_func(x_viable[-1], params.alpha)}')
+                    print(f'  NN output at abort with alpha = 10: '
+                        f'{model.nn_func(x_viable[-1], 10.)}')
+                # Instead of breaking, solve safe abort problem
+                xg = np.full((safe_ocp.N + 1, model.nx), x_viable[-1])
+                ug = np.zeros((safe_ocp.N, model.nu))
+                safe_ocp.setGuess(xg, ug)
+                status = safe_ocp.solve(x_viable[-1])
+                if status != 0:
+                    if CALLBACK:
+                        print('  SAFE ABORT FAILED')
+                        print('  Current controller fails:', controller.fails)
+                    collisions_idx.append(i)
+                    break
+                ja = 0
+                viable_idx.append(i)
+                x_abort, u_abort = safe_ocp.x_temp, safe_ocp.u_temp
 
         tau = np.array([model.tau_fun(controller.x_temp[k], controller.u_temp[k]).T for k in range(len(controller.u_temp))])
         if not model.checkStateConstraints(controller.x_temp):
@@ -111,41 +140,37 @@ for i in range(params.test_num):
 
         stats.append(controller.getTime())
         x_sim[j + 1], _ = model.integrate(x_sim[j], u[j])
-        # Check Safe Abort
-        if sa_flag:
-            x_viable += [controller.getLastViableState()]
-            viable_idx.append(i)
-            print(f'  ABORT at step {j}, u = {u[j]}')
-            break
 
         # Check next state bounds and collision
         if not model.checkStateConstraints(x_sim[j + 1]):   
-            print('  FAIL BOUNDS')
-            print(f'\tState {j + 1} violation: {np.min(np.vstack((model.x_max - x_sim[j + 1], x_sim[j + 1] - model.x_min)), axis=0)}')
-            print(f'\tCurrent controller fails: {controller.fails}')
+            if CALLBACK:
+                print('  FAIL BOUNDS')
+                print(f'\tState {j + 1} violation: {np.min(np.vstack((model.x_max - x_sim[j + 1], x_sim[j + 1] - model.x_min)), axis=0)}')
+                print(f'\tCurrent controller fails: {controller.fails}')
             collisions_idx.append(i)
             break
         if not controller.checkCollision(x_sim[j + 1]):
             collisions_idx.append(i)
-            print('  FAIL COLLISION')
+            if CALLBACK:
+                print(f'  FAIL COLLISION at step {j + 1}')
             break
     # Check convergence
-    if not model.amodel.name == 'triple_pendulum':
-        if np.linalg.norm(model.jointToEE(x_sim[-1]).T - ee_ref) < params.tol_conv:
-            conv_idx.append(i)
+    if np.linalg.norm(model.jointToEE(x_sim[-1]).T - ee_ref) < params.tol_conv:
+        conv_idx.append(i)
+        if CALLBACK:
             print('  SUCCESS !!')
-    else:
-        if convergenceCriteria(x_sim[-1], np.array([1, 0, 0, 1, 0, 0])) and not np.isnan(x_sim[-1]).any():
-            conv_idx.append(i)
-            print('  SUCCESS !!')
+        if i in viable_idx:
+            viable_idx.remove(i)
+
     x_sim_list.append(x_sim), u_list.append(u)
 
+viable_idx = [i for i in viable_idx if i not in collisions_idx]
 unconv_idx = np.setdiff1d(np.arange(params.test_num), 
                           reduce(np.union1d, (conv_idx, collisions_idx, viable_idx))).tolist()
-print('Completed task: ', len(conv_idx))
-print('Collisions: ', len(collisions_idx))
-print('Viable states: ', len(viable_idx))
-print('Not converged: ', len(unconv_idx))
+print(f'Completed task: {len(conv_idx)}'
+      f'\nCollisions: {len(collisions_idx)}'
+      f'\nViable states: {len(viable_idx)}'
+      f'\nNot converged: {len(unconv_idx)}')
 
 print('Failing reasons:', 
       f'\n\t x bounds: {counters[0]}',
@@ -160,7 +185,7 @@ for field, t in zip(controller.time_fields, np.quantile(times, 0.99, axis=0)):
     print(f"{field:<20} -> {t}")
     
 # Save simulation data
-with open(f'{params.DATA_DIR}{model_name}_{cont_name}_mpc.pkl', 'wb') as f:
+with open(f'{params.DATA_DIR}{model_name}_{cont_name}_{horizon}hor_{int(params.alpha)}sm_mpc.pkl', 'wb') as f:
     pickle.dump({'x': np.asarray(x_sim_list),
                  'u': np.asarray(u_list),
                  'conv_idx' : conv_idx,
@@ -168,6 +193,3 @@ with open(f'{params.DATA_DIR}{model_name}_{cont_name}_mpc.pkl', 'wb') as f:
                  'unconv_idx' : unconv_idx,
                  'viable_idx': viable_idx, 
                  'x_viable': np.asarray(x_viable)}, f)
-
-# print(f'Total torque violations: {len(tau_viol)}')
-# np.save(f'{params.DATA_DIR}tau_viol_wo_check.npy', np.asarray(tau_viol))

@@ -1,10 +1,9 @@
 import time
 import pickle
 import numpy as np
-from tqdm import tqdm
 from scipy.stats import qmc
 from safe_mpc.parser import Parameters, parse_args
-from safe_mpc.abstract import AdamModel, TriplePendulumModel
+from safe_mpc.abstract import AdamModel
 from safe_mpc.utils import obstacles, ee_ref, get_ocp
 
 
@@ -12,11 +11,10 @@ args = parse_args()
 model_name = args['system']
 params = Parameters(model_name, rti=False)
 params.act = args['activation']
-if model_name == 'triple_pendulum':
-    model = TriplePendulumModel(params)
-else:
-    model = AdamModel(params, n_dofs=4)
-    model.ee_ref = ee_ref
+params.N = args['horizon']
+params.alpha = args['alpha']
+model = AdamModel(params, n_dofs=4)
+model.ee_ref = ee_ref
 
 ocp_name = args['controller']
 ocp = get_ocp(ocp_name, model, obstacles)
@@ -26,7 +24,6 @@ num_ics = params.test_num
 succ, fails, skip_ics = 0, 0, 0
 sampler = qmc.Halton(model.nq, scramble=False)
 x_guess, u_guess = [], []
-progress_bar = tqdm(total=num_ics, desc='Generating initial conditions')
 
 start_time = time.time()
 while succ < num_ics:
@@ -35,7 +32,7 @@ while succ < num_ics:
     x0[:model.nq] = q0
 
     if ocp.checkCollision(x0):
-        u0 = np.zeros((model.nu,)) if model_name == 'triple_pendulum' else model.gravity(np.eye(4), q0)[6:]
+        u0 = np.zeros((model.nu,)) 
 
         opti.set_value(ocp.x_init, x0)
         for k in range(params.N):
@@ -49,21 +46,19 @@ while succ < num_ics:
             ug = np.array([sol.value(ocp.U[k]) for k in range(params.N)])
             x_guess.append(xg), u_guess.append(ug)
             succ += 1
-            progress_bar.update(1)
         except:
             sol = opti.debug
             fails += 1
     else:
         skip_ics += 1
 
-progress_bar.close()
 print(f'Number of failed initializations: {fails}')
 print(f'Number of skipped initial conditions: {skip_ics}')
 
 x_guess = np.asarray(x_guess)
 u_guess = np.asarray(u_guess)
-
-with open(f'{params.DATA_DIR}{model_name}_{ocp_name}_guess.pkl', 'wb') as f:
+# with open(f'{params.DATA_DIR}{model_name}_{ocp_name}_guess.pkl', 'wb') as f:
+with open(f'{params.DATA_DIR}{model_name}_{ocp_name}_{params.N}hor_{int(params.alpha)}sm_guess.pkl', 'wb') as f:
     pickle.dump({'xg': x_guess, 'ug': u_guess}, f)
 
 elapsed_time = time.time() - start_time

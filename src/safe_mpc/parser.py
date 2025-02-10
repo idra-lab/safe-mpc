@@ -14,7 +14,7 @@ def parse_args():
                         help='Controllers to test. Available: naive, st, stwa, htwa, receding')
     parser.add_argument('-b', '--build', action='store_true',
                         help='Build the code of the embedded controller')
-    parser.add_argument('--alpha', type=float, default=2.0,
+    parser.add_argument('--alpha', type=float, default=10.0,
                         help='Alpha parameter for the NN safety factor')
     parser.add_argument('--horizon', type=int, default=45,
                         help='Horizon of the optimal control problem')
