@@ -21,6 +21,7 @@ nq = model.nq
 
 cont_name = args['controller']
 controller = get_controller(cont_name, model, obstacles)
+params.solver_type = 'SQP'
 safe_ocp = SafeBackupController(model, obstacles)
 horizon = args['horizon']
 controller.resetHorizon(horizon)
@@ -48,11 +49,9 @@ for i in range(params.test_num):
     x_sim[0] = x0
 
     controller.setGuess(x_guess[i], u_guess[i])
-    try:
+    if controller.ocp_name == 'receding':
         controller.r = controller.N
         controller.r_last = controller.N
-    except:
-        pass
     controller.fails = 0
     j = 0
     ja = 0
