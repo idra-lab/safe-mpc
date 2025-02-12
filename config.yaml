@@ -6,7 +6,7 @@ N: 45                     # horizon length --> 45 for z1
 dt: 5e-3                  # time step
 alpha: 10.                # safety margin 
 
-solver_mode: 'BALANCE'     # HPIPM mode, can be --> 'BALANCE', 'ROBUST', 'SPEED', 'SPEED_ABS'
+solver_mode: 'BALANCE'    # HPIPM mode, can be --> 'BALANCE', 'ROBUST', 'SPEED', 'SPEED_ABS'
 nlp_max_iter: 500
 rti_iter: 100
 qp_max_iter: 200
@@ -14,6 +14,13 @@ alpha_reduction: 0.3
 alpha_min: 1e-2
 levenberg_marquardt: 1e0  # 1e-3 in general, 1e-1 for z1 guess, 1e0 for z1 mpc
 ext_flag: '-O2'
+
+Q:                        # state cost
+  - [100, 0., 0.]
+  - [0., 100, 0.]
+  - [0., 0., 100]
+R: 5e-3                   # torque cost
+  
 
 tol_x: 5e-3               # state -4
 tol_tau: 1e-6             # torque

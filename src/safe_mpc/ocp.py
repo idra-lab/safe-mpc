@@ -25,25 +25,14 @@ class NaiveOCP:
 
         opti.subject_to(X[0] == x_init)
         
-        if self.model.amodel.name == 'triple_pendulum': 
-            Q = 1e-4 * np.eye(self.model.nx)
-            Q[0, 0] = 5e2
-            R = 1e-4 * np.eye(self.model.nu)
-            x_ref = np.zeros(self.model.nx)
-            x_ref[:self.model.nq] = np.pi
-            x_ref[0] = self.params.q_max - 0.05
-        else:
-            Q = 1e1 * np.eye(3)
-            R = 5e-3 * np.eye(self.model.nu)
-            ee_ref = model.ee_ref
+        Q = self.params.Q
+        R = self.params.R * np.eye(self.model.nu)
+        ee_ref = model.ee_ref
         dist_b = []
         for k in range(N + 1):
                 
-            if self.model.amodel.name == 'triple_pendulum':
-                cost += (X[k] - x_ref).T @ Q @ (X[k] - x_ref)
-            else:
-                ee_pos = model.ee_fun(X[k])
-                cost += (ee_pos - ee_ref).T @ Q @ (ee_pos - ee_ref)
+            ee_pos = model.ee_fun(X[k])
+            cost += (ee_pos - ee_ref).T @ Q @ (ee_pos - ee_ref)
 
             if k < N:
                 cost += U[k].T @ R @ U[k]
