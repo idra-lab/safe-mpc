@@ -106,7 +106,7 @@ class RecedingController(STWAController):
     def additionalSetting(self):
         # Terminal constraint before, since it construct the nn model
         self.terminalConstraint()
-        self.runningConstraint()
+        self.runningConstraint(soft=False)
 
     def step(self, x):
         # Terminal constraint
@@ -115,14 +115,16 @@ class RecedingController(STWAController):
         # lh = self.ocp.constraints.lh
         # lh_rec = np.copy(lh)
         # lh[-1] = -1e6
-        self.ocp_solver.cost_set(self.r, "zl", self.params.ws_r * np.ones((1,)))
         # if self.r < self.N:
         #     self.ocp_solver.constraints_set(self.r, "lh", lh_rec)
+        # self.ocp_solver.cost_set(self.r, "zl", self.params.ws_r * np.ones((1,)))
+        self.ocp_solver.set(self.r, "p", np.hstack([self.model.ee_ref, [self.params.alpha, 1.]]))
         for i in range(self.N):
             if i != self.r:
                 # No constraints on other running states
-                self.ocp_solver.cost_set(i, "zl", np.zeros((1,)))
+                # self.ocp_solver.cost_set(i, "zl", np.zeros((1,)))
                 # self.ocp_solver.constraints_set(i, "lh", lh)
+                self.ocp_solver.set(i, "p", np.hstack([self.model.ee_ref, [self.params.alpha, -1.]]))
         # Solve the OCP
         status = self.solve(x)
 

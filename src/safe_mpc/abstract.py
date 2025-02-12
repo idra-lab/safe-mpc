@@ -4,7 +4,7 @@ from copy import deepcopy
 from urdf_parser_py.urdf import URDF
 import adam
 from adam.casadi import KinDynComputations
-from casadi import MX, vertcat, norm_2, Function
+from casadi import MX, vertcat, norm_2, Function, if_else
 from acados_template import AcadosModel, AcadosOcp, AcadosOcpSolver
 import torch
 import scipy.linalg as lin
@@ -76,7 +76,7 @@ class AdamModel:
         self.x = MX.sym("x", nq * 2)
         self.x_dot = MX.sym("x_dot", nq * 2)
         self.u = MX.sym("u", nq)
-        self.p = MX.sym("p", 4)     # Safety margin for the NN model, EE 
+        self.p = MX.sym("p", 5)     # Safety margin for the NN model, EE, logic variable
         # Double integrator
         self.f_disc = vertcat(
             self.x[:nq] + params.dt * self.x[nq:] + 0.5 * params.dt**2 * self.u,
@@ -208,7 +208,9 @@ class AdamModel:
                                       device='cpu',
                                       name=f'{self.amodel.name}_model',
                                       build_dir=f'{self.params.GEN_DIR}nn_{self.amodel.name}')
-        self.nn_model = self.l4c_model(state) * (100 - self.p[3]) / 100 - vel_norm
+        self.nn_model = if_else(self.p[4] > 0, 
+                                self.l4c_model(state) * (100 - self.p[3]) / 100 - vel_norm, 
+                                1., True)
         self.nn_func = Function('nn_func', [self.x, self.p], [self.nn_model])
 
 
@@ -230,44 +232,18 @@ class AbstractController:
         self.ocp.model = self.model.amodel
 
         # Cost
-        if self.model.amodel.name == 'triple_pendulum':
-            self.Q = 1e-4 * np.eye(self.model.nx)
-            self.Q[0, 0] = 5e2
-            self.R = 1e-4 * np.eye(self.model.nu)
+        self.Q = self.params.Q
+        self.R = self.params.R * np.eye(self.model.nu) 
 
-            self.ocp.cost.W = lin.block_diag(self.Q, self.R)
-            self.ocp.cost.W_e = self.Q
-            
-            self.ocp.cost.cost_type = 'LINEAR_LS'
-            self.ocp.cost.cost_type_e = 'LINEAR_LS'
+        self.ocp.cost.cost_type = 'EXTERNAL'
+        self.ocp.cost.cost_type_e = 'EXTERNAL'
 
-            self.x_ref = np.zeros(self.model.nx)
-            self.x_ref[:self.model.nq] = np.pi
-            self.x_ref[0] = self.params.q_max - 0.05
-
-            self.ocp.cost.Vx = np.zeros((self.model.ny, self.model.nx))
-            self.ocp.cost.Vx[:self.model.nx, :self.model.nx] = np.eye(self.model.nx)
-            self.ocp.cost.Vu = np.zeros((self.model.ny, self.model.nu))
-            self.ocp.cost.Vu[self.model.nx:, :self.model.nu] = np.eye(self.model.nu)
-            self.ocp.cost.Vx_e = np.eye(self.model.nx)
-
-            self.ocp.cost.yref = np.zeros(self.model.ny)
-            self.ocp.cost.yref[:self.model.nx] = self.x_ref 
-            self.ocp.cost.yref_e = self.x_ref
-
-        else:
-            self.Q = 1e1 * np.eye(3)
-            self.R = 5e-3 * np.eye(self.model.nu) 
-
-            self.ocp.cost.cost_type = 'EXTERNAL'
-            self.ocp.cost.cost_type_e = 'EXTERNAL'
-
-            t_glob = self.model.t_glob
-            delta = t_glob - self.model.p[:3]
-            track_ee = delta.T @ self.Q @ delta 
-            self.ocp.model.cost_expr_ext_cost = track_ee + self.model.u.T @ self.R @ self.model.u
-            self.ocp.model.cost_expr_ext_cost_e = track_ee
-            self.ocp.parameter_values = np.hstack([self.model.ee_ref, [self.params.alpha]])
+        t_glob = self.model.t_glob
+        delta = t_glob - self.model.p[:3]
+        track_ee = delta.T @ self.Q @ delta 
+        self.ocp.model.cost_expr_ext_cost = track_ee + self.model.u.T @ self.R @ self.model.u
+        self.ocp.model.cost_expr_ext_cost_e = track_ee
+        self.ocp.parameter_values = np.hstack([self.model.ee_ref, [self.params.alpha, 1.]])
 
         # Constraints
         self.ocp.constraints.lbx_0 = self.model.x_min
@@ -441,12 +417,12 @@ class AbstractController:
         for i in range(self.N):
             self.ocp_solver.set(i, 'x', self.x_guess[i])
             self.ocp_solver.set(i, 'u', self.u_guess[i])
-            if not self.model.amodel.name == 'triple_pendulum':
-                self.ocp_solver.set(i, 'p', np.hstack([self.model.ee_ref, [self.params.alpha]]))
+            if self.ocp_name != 'receding':
+                self.ocp_solver.set(i, 'p', np.hstack([self.model.ee_ref, [self.params.alpha, 1.]]))
 
         self.ocp_solver.set(self.N, 'x', self.x_guess[-1])
-        if not self.model.amodel.name == 'triple_pendulum':
-            self.ocp_solver.set(self.N, 'p', np.hstack([self.model.ee_ref, [self.params.alpha]]))
+        if self.ocp_name != 'receding':
+            self.ocp_solver.set(self.N, 'p', np.hstack([self.model.ee_ref, [self.params.alpha, 1.]]))
 
         # Solve the OCP
         status = self.ocp_solver.solve()
