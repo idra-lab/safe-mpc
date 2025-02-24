@@ -4,7 +4,7 @@ import numpy as np
 from scipy.stats import qmc
 from safe_mpc.parser import Parameters, parse_args
 from safe_mpc.abstract import AdamModel
-from safe_mpc.utils import obstacles, ee_ref, get_ocp
+from safe_mpc.utils import obstacles, ee_ref, get_ocp, capsules, capsule_pairs
 
 
 args = parse_args()
@@ -17,7 +17,7 @@ model = AdamModel(params, args['dofs'])
 model.ee_ref = ee_ref
 
 ocp_name = args['controller']
-ocp = get_ocp(ocp_name, model, obstacles)
+ocp = get_ocp(ocp_name, model, obstacles, capsules, capsule_pairs)
 opti = ocp.instantiateProblem()
 
 num_ics = params.test_num

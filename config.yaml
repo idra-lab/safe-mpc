@@ -29,7 +29,7 @@ tol_obs: 1e-4             # obstacle tolerance -6
 tol_nn: 1e-4              # neural network -6
 
 eps: 1e-6                 # for numerical stability in NN function 
-tol_conv: 1e-3            # convergence tolerance for the task
+tol_conv: 5e-3            # convergence tolerance for the task
 tol_cost: 1e-3            # Tolerance for the cost
 
 q_dot_gain: 1e4

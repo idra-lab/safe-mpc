@@ -5,8 +5,8 @@ from casadi import Function, norm_2
 
 
 class NaiveController(AbstractController):
-    def __init__(self, model, obstacles=None):
-        super().__init__(model, obstacles)
+    def __init__(self, model, obstacles=None, capsules=None, capsule_pairs=None):
+        super().__init__(model, obstacles, capsules, capsule_pairs)
 
     def checkGuess(self):
         return self.model.checkRunningConstraints(self.x_temp, self.u_temp) and \
@@ -38,8 +38,8 @@ class NaiveController(AbstractController):
     
 class TerminalZeroVelocity(NaiveController):
     """ Naive MPC with zero terminal velocity as constraint """
-    def __init__(self, model, obstacles=None):
-        super().__init__(model, obstacles)
+    def __init__(self, model, obstacles=None, capsules=None, capsule_pairs=None):
+        super().__init__(model, obstacles, capsules, capsule_pairs)
 
     def additionalSetting(self):
         x_min_e = np.hstack((self.model.x_min[:self.model.nq], np.zeros(self.model.nv)))
@@ -51,16 +51,16 @@ class TerminalZeroVelocity(NaiveController):
 
 
 class STController(NaiveController):
-    def __init__(self, model, obstacles):
-        super().__init__(model, obstacles)
+    def __init__(self, model, obstacles, capsules=None, capsule_pairs=None):
+        super().__init__(model, obstacles, capsules, capsule_pairs)
 
     def additionalSetting(self):
         self.terminalConstraint()
 
 
 class STWAController(STController):
-    def __init__(self, model, obstacles):
-        super().__init__(model, obstacles)
+    def __init__(self, model, obstacles, capsules=None, capsule_pairs=None):
+        super().__init__(model, obstacles, capsules, capsule_pairs)
         self.x_viable = None
 
     def checkGuess(self):
@@ -89,16 +89,16 @@ class STWAController(STController):
 
 
 class HTWAController(STWAController):
-    def __init__(self, model, obstacles):
-        super().__init__(model, obstacles)
+    def __init__(self, model, obstacles, capsules=None, capsule_pairs=None):
+        super().__init__(model, obstacles, capsules, capsule_pairs)
 
     def additionalSetting(self):
         self.terminalConstraint(soft=False)
 
 
 class RecedingController(STWAController):
-    def __init__(self, model, obstacles):
-        super().__init__(model, obstacles)
+    def __init__(self, model, obstacles, capsules=None, capsule_pairs=None):
+        super().__init__(model, obstacles, capsules, capsule_pairs)
         self.r = self.N
         self.r_last = self.N
         self.abort_flag = self.params.abort_flag
@@ -204,8 +204,8 @@ class RealReceding(STWAController):
 
 
 class SafeBackupController(AbstractController):
-    def __init__(self, model, obstacles):
-        super().__init__(model, obstacles)
+    def __init__(self, model, obstacles, capsules=None, capsule_pairs=None):
+        super().__init__(model, obstacles, capsules, capsule_pairs)
 
     def additionalSetting(self):
         self.N = 45

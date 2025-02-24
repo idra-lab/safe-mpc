@@ -3,7 +3,7 @@ import numpy as np
 from functools import reduce
 from safe_mpc.parser import Parameters, parse_args
 from safe_mpc.abstract import AdamModel
-from safe_mpc.utils import obstacles, ee_ref, get_controller
+from safe_mpc.utils import obstacles, ee_ref, get_controller, capsules, capsule_pairs
 from safe_mpc.controller import SafeBackupController
 
 
@@ -20,9 +20,9 @@ model.ee_ref = ee_ref
 nq = model.nq
 
 cont_name = args['controller']
-controller = get_controller(cont_name, model, obstacles)
+controller = get_controller(cont_name, model, obstacles, capsules, capsule_pairs)
 params.solver_type = 'SQP'
-safe_ocp = SafeBackupController(model, obstacles)
+safe_ocp = SafeBackupController(model, obstacles, capsules, capsule_pairs)
 horizon = args['horizon']
 controller.resetHorizon(horizon)
 
