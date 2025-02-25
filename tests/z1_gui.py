@@ -3,7 +3,10 @@ import threading
 import numpy as np
 import tkinter as tk
 import pinocchio as pin
-from safe_mpc.parser import Parameters
+from safe_mpc.parser import Parameters, parse_args
+from safe_mpc.utils import obstacles, ee_ref, RobotVisualizer, capsules, capsule_pairs
+from safe_mpc.abstract import AdamModel
+from safe_mpc.controller import NaiveController
 
 
 axes = ['x', 'y', 'z']
@@ -50,7 +53,7 @@ def update_ee(value):
 def create_gui():
     global scale_joints, position_ee
     master = tk.Tk(className='Z1 Robot GUI')
-    scale_joints = ScaleJoints(master, 'Joint', 4, 
+    scale_joints = ScaleJoints(master, 'Joint', model.nq, 
                                rmodel_red.lowerPositionLimit, 
                                rmodel_red.upperPositionLimit, 
                                np.pi / 2, 300, update_ee)
@@ -62,32 +65,45 @@ def run_visualizer():
     i = 0
     dt = 1e-3
     display_n = 10
+    rviz.displayWithEESphere(np.zeros(model.nq), robot.capsules)
     while True:
         time_start = time.time()
-        if i % display_n == 0:
-            viz.display(q)
+        if i % display_n == 0 and q is not None:
+            rviz.displayWithEESphere(q, robot.capsules)
+        i += 1
         time_end = time.time()
         time.sleep(max(0, dt - (time_end - time_start)))
+    
 
+args = parse_args()
+nq = args['dofs']
+cont_name = args['controller']
+alpha = args['alpha']
+horizon = args['horizon']
+params = Parameters('z1', True)
+model = AdamModel(params, nq)
+model.ee_ref = ee_ref
+robot = NaiveController(model, obstacles, capsules, capsule_pairs)
+rviz = RobotVisualizer(params, nq)
+rviz.setTarget(ee_ref)
+if params.obs_flag:
+    rviz.addObstacles(obstacles)
+for capsule in robot.capsules:
+    rviz.init_capsule(capsule)
 
-params = Parameters('z1')
 description_dir = params.ROBOTS_DIR + 'z1_description'
 rmodel, collision, visual = pin.buildModelsFromUrdf(description_dir + '/urdf/z1.urdf',
                                                     package_dirs=params.ROOT_DIR)
 geom = [collision, visual]
 
 lockIDs = []
-lockNames = ['joint5', 'joint6', 'jointGripper']
+joint_names = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6', 'jointGripper']
+lockNames = joint_names[nq:]
 for name in lockNames:
     lockIDs.append(rmodel.getJointId(name))
 
 rmodel_red, geom_red = pin.buildReducedModel(rmodel, geom, lockIDs, np.zeros(7))
 rdata = rmodel_red.createData()
-viz = pin.visualize.MeshcatVisualizer(rmodel_red, geom_red[0], geom_red[1])
-viz.initViewer(loadModel=True, open=True)
-viz.setCameraPosition(np.array([0.5, -0.5, 0.4]))
-viz.setCameraTarget(np.array([0., 1, 0.]))
-viz.display(np.zeros(rmodel_red.nq))
 frame_id = rmodel_red.getFrameId(params.frame_name)
 
 th_gui = threading.Thread(target=create_gui)
