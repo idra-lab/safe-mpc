@@ -141,11 +141,8 @@ capsules.append(create_fixed_capsule('fixed3',0.05,np.array([0.5, -0.20, 0.25]),
 # elements in the pairs in this order                                                       ###
 capsule_pairs = []
 capsule_pairs.append(assign_pairs('arm','ee',obstacles,capsules))
-capsule_pairs.append(assign_pairs('ee','ball',obstacles,capsules))
-capsule_pairs.append(assign_pairs('ee','floor',obstacles,capsules))
 capsule_pairs.append(assign_pairs('forearm','floor',obstacles,capsules))
-capsule_pairs.append(assign_pairs('forearm','ball',obstacles,capsules))
-# capsule_pairs.append(assign_pairs('ee','fixed1',obstacles,capsules))
+capsule_pairs.append(assign_pairs('ee','floor',obstacles,capsules))
 capsule_pairs.append(assign_pairs('forearm','fixed1',obstacles,capsules))
 capsule_pairs.append(assign_pairs('forearm','fixed2',obstacles,capsules))
 capsule_pairs.append(assign_pairs('forearm','fixed3',obstacles,capsules))
