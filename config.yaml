@@ -7,8 +7,8 @@ dt: 5e-3                  # time step
 alpha: 10.                # safety margin 
 
 solver_mode: 'BALANCE'    # HPIPM mode, can be --> 'BALANCE', 'ROBUST', 'SPEED', 'SPEED_ABS'
-nlp_max_iter: 500
-rti_iter: 100
+nlp_max_iter: 400
+rti_iter: 1
 qp_max_iter: 200
 alpha_reduction: 0.3
 alpha_min: 1e-2
@@ -29,7 +29,7 @@ tol_obs: 1e-4             # obstacle tolerance -6
 tol_nn: 1e-4              # neural network -6
 
 eps: 1e-6                 # for numerical stability in NN function 
-tol_conv: 5e-3            # convergence tolerance for the task
+tol_conv: 1e-3            # convergence tolerance for the task
 tol_cost: 1e-3            # Tolerance for the cost
 
 q_dot_gain: 1e4
@@ -37,4 +37,99 @@ ws_t: 1e2
 ws_r: 1e4
 
 obs_flag: true           # activation of Cartesian constraints
+obs_string: '_obs'
 abort_flag: true         # activation of abort mechanism for receding MPC
+use_net: false            # use the network safe set if true, otherwise analytic safe set
+
+n_dof_net: 4
+frame_ee: 'gripperMover'
+ee_ref: [0.6, 0.28, 0.078]
+
+track_traj: false
+
+ddq_max: [0.1       , 1.        , 1.66666667, 2.33333333, 2.33333333, 2.33333333]
+ddx_max: [0.13333333, 0.13333333, 0.13333333]
+
+obstacles:
+  - name: 'floor'
+    type: 'box'
+    dimensions: [2, 2, 1e-3]
+    color: [0,0,1,1]
+    position: [0.75,0,0]
+    transform: 
+      - [1,0,0,0]
+      - [0,1,0,0]
+      - [0,0,1,0]
+      - [0,0,0,1]
+    bounds: [0,1e6] 
+
+  - name: 'ball'
+    type: 'sphere'
+    radius: 0.12
+    color: [0,1,1,1]
+    position: [0.6,0,0.12]
+    transform: 
+      - [1,0,0,0.6]
+      - [0,1,0,0]
+      - [0,0,1,0.12]
+      - [0,0,0,1]
+
+robot_capsules:
+  - name: 'arm'
+    link_name: 'link02'
+    link_axis: 0
+    radius: 0.05
+    length: 0.35
+    spatial_offset: [0,0,0]
+    rotation_offset: [0,0,0]
+    color: [1,0,0,0.3]
+  
+  - name: 'ee'
+    link_name: 'link05'
+    link_axis: 0
+    radius: 0.05
+    length: 0.22
+    spatial_offset: [0,0,0]
+    rotation_offset: [0,0,0]
+    color: [1,0,0,0.3]
+
+  - name: 'forearm'
+    link_name: 'link03'
+    link_axis: 0
+    radius: 0.05
+    length: 0.16
+    spatial_offset: [0.06,0,0.05]
+    rotation_offset: [0,-0.06283185307179587,0]
+    color: [0,0,1,0.3]
+
+obstacles_capsules:
+  - name: 'fixed1'
+    radius: 0.05
+    point_A: [0.5,0.20,0]
+    point_B: [0.5, 0.20, 0.25]
+    color: [0, 1, 1, 1]
+
+  - name: 'fixed2'
+    radius: 0.05
+    point_A: [0.5, -0.20, 0.]
+    point_B: [0.5, -0.20, 0.25]
+    color: [0, 1, 1, 1]
+
+  - name: 'fixed3'
+    radius: 0.05
+    point_A: [0.5, -0.20, 0.25]
+    point_B: [0.5, 0.20, 0.25]
+    color: [0, 1, 1, 1]
+
+collision_pairs:
+  #  - ['arm','ee']
+   - ['ee','ball']
+   - ['ee', 'floor']
+  #  - ['forearm','floor']
+  #  - ['forearm', 'ball']
+  # - ['ee','fixed1']
+  # - ['ee','fixed2']
+  # - ['ee','fixed3']
+  # - ['forearm','fixed1']
+  # - ['forearm','fixed2']
+  # - ['forearm','fixed3']

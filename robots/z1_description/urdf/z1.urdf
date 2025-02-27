@@ -35,7 +35,7 @@
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://example-robot-data/robots/z1_description/meshes/visual/z1_Link00.dae" scale="1 1 1"/>
+        <mesh filename="package://robots/z1_description/meshes/visual/z1_Link00.dae" scale="1 1 1"/>
       </geometry>
       <material name="light_blue"/>
     </visual>
@@ -57,13 +57,13 @@
     <child link="link01"/>
     <axis xyz="0 0 1"/>
     <dynamics damping="1.0" friction="1.0"/>
-    <limit effort="30.0" lower="-2.6179938779914944" upper="2.6179938779914944" velocity="3.1415"/>
+    <limit effort="2.0" lower="-2.6179938779914944" upper="2.6179938779914944" velocity="3.1415"/>
   </joint>
   <link name="link01">
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://example-robot-data/robots/z1_description/meshes/visual/z1_Link01.dae" scale="1 1 1"/>
+        <mesh filename="package://robots/z1_description/meshes/visual/z1_Link01.dae" scale="1 1 1"/>
       </geometry>
       <material name="light_blue"/>
     </visual>
@@ -79,13 +79,13 @@
     <child link="link02"/>
     <axis xyz="0 1 0"/>
     <dynamics damping="2.0" friction="2.0"/>
-    <limit effort="60.0" lower="0.0" upper="2.9670597283903604" velocity="3.1415"/>
+    <limit effort="23.0" lower="0.0" upper="2.9670597283903604" velocity="3.1415"/>
   </joint>
   <link name="link02">
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://example-robot-data/robots/z1_description/meshes/visual/z1_Link02.dae" scale="1 1 1"/>
+        <mesh filename="package://robots/z1_description/meshes/visual/z1_Link02.dae" scale="1 1 1"/>
       </geometry>
       <material name="light_blue"/>
     </visual>
@@ -119,13 +119,13 @@
     <child link="link03"/>
     <axis xyz="0 1 0"/>
     <dynamics damping="1.0" friction="1.0"/>
-    <limit effort="30.0" lower="-2.8797932657906435" upper="0.0" velocity="3.1415"/>
+    <limit effort="10.0" lower="-2.8797932657906435" upper="0.0" velocity="3.1415"/>
   </joint>
   <link name="link03">
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://example-robot-data/robots/z1_description/meshes/visual/z1_Link03.dae" scale="1 1 1"/>
+        <mesh filename="package://robots/z1_description/meshes/visual/z1_Link03.dae" scale="1 1 1"/>
       </geometry>
       <material name="light_blue"/>
     </visual>
@@ -153,13 +153,13 @@
     <child link="link04"/>
     <axis xyz="0 1 0"/>
     <dynamics damping="1.0" friction="1.0"/>
-    <limit effort="30.0" lower="-1.5184364492350666" upper="1.5184364492350666" velocity="3.1415"/>
+    <limit effort="4.0" lower="-1.5184364492350666" upper="1.5184364492350666" velocity="3.1415"/>
   </joint>
   <link name="link04">
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://example-robot-data/robots/z1_description/meshes/visual/z1_Link04.dae" scale="1 1 1"/>
+        <mesh filename="package://robots/z1_description/meshes/visual/z1_Link04.dae" scale="1 1 1"/>
       </geometry>
       <material name="light_blue"/>
     </visual>
@@ -181,13 +181,13 @@
     <child link="link05"/>
     <axis xyz="0 0 1"/>
     <dynamics damping="1.0" friction="1.0"/>
-    <limit effort="30.0" lower="-1.3439035240356338" upper="1.3439035240356338" velocity="3.1415"/>
+    <limit effort="4.0" lower="-1.3439035240356338" upper="1.3439035240356338" velocity="3.1415"/>
   </joint>
   <link name="link05">
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://example-robot-data/robots/z1_description/meshes/visual/z1_Link05.dae" scale="1 1 1"/>
+        <mesh filename="package://robots/z1_description/meshes/visual/z1_Link05.dae" scale="1 1 1"/>
       </geometry>
       <material name="light_blue"/>
     </visual>
@@ -203,13 +203,13 @@
     <child link="link06"/>
     <axis xyz="1 0 0"/>
     <dynamics damping="1.0" friction="1.0"/>
-    <limit effort="30.0" lower="-2.792526803190927" upper="2.792526803190927" velocity="3.1415"/>
+    <limit effort="4.0" lower="-2.792526803190927" upper="2.792526803190927" velocity="3.1415"/>
   </joint>
   <link name="link06">
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://example-robot-data/robots/z1_description/meshes/visual/z1_Link06.dae" scale="1 1 1"/>
+        <mesh filename="package://robots/z1_description/meshes/visual/z1_Link06.dae" scale="1 1 1"/>
       </geometry>
       <material name="light_blue"/>
     </visual>
@@ -233,13 +233,13 @@
   <link name="gripperStator">
       <visual>
           <geometry>
-              <mesh filename="package://example-robot-data/robots/z1_description/meshes/visual/z1_GripperStator.dae" scale="1 1 1"/>
+              <mesh filename="package://robots/z1_description/meshes/visual/z1_GripperStator.dae" scale="1 1 1"/>
           </geometry>
           <material name="dark_blue"/>
       </visual>
       <collision>
           <geometry>
-              <mesh filename="package://example-robot-data/robots/z1_description/meshes/collision/z1_GripperStator.STL" scale="1 1 1"/>
+              <mesh filename="package://robots/z1_description/meshes/collision/z1_GripperStator.STL" scale="1 1 1"/>
           </geometry>
       </collision>
       <inertial>
@@ -259,13 +259,13 @@
   <link name="gripperMover">
       <visual>
           <geometry>
-              <mesh filename="package://example-robot-data/robots/z1_description/meshes/visual/z1_GripperMover.dae" scale="1 1 1"/>
+              <mesh filename="package://robots/z1_description/meshes/visual/z1_GripperMover.dae" scale="1 1 1"/>
           </geometry>
           <material name="dark_blue"/>
       </visual>
       <collision>
           <geometry>
-              <mesh filename="package://example-robot-data/robots/z1_description/meshes/collision/z1_GripperMover.STL" scale="1 1 1"/>
+              <mesh filename="package://robots/z1_description/meshes/collision/z1_GripperMover.STL" scale="1 1 1"/>
           </geometry>
       </collision>
       <inertial>

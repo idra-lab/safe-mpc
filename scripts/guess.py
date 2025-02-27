@@ -4,7 +4,7 @@ import numpy as np
 from scipy.stats import qmc
 from safe_mpc.parser import Parameters, parse_args
 from safe_mpc.abstract import AdamModel
-from safe_mpc.utils import obstacles, ee_ref, get_ocp, capsules, capsule_pairs
+from safe_mpc.utils import get_ocp, RobotVisualizer
 
 
 args = parse_args()
@@ -14,10 +14,9 @@ params.act = args['activation']
 params.N = args['horizon']
 params.alpha = args['alpha']
 model = AdamModel(params, args['dofs'])
-model.ee_ref = ee_ref
 
 ocp_name = args['controller']
-ocp = get_ocp(ocp_name, model, obstacles, capsules, capsule_pairs)
+ocp = get_ocp(ocp_name, model)
 opti = ocp.instantiateProblem()
 
 num_ics = params.test_num
@@ -25,13 +24,21 @@ succ, fails, skip_ics = 0, 0, 0
 sampler = qmc.Halton(model.nq, scramble=False)
 x_guess, u_guess = [], []
 
+rviz = RobotVisualizer(params, n_dofs=4)
+if params.obs_flag:
+    rviz.addObstacles(params.obstacles)
+rviz.init_capsule(params.robot_capsules+params.obst_capsules)
+
 start_time = time.time()
 while succ < num_ics:
     q0 = qmc.scale(sampler.random(), model.x_min[:model.nq], model.x_max[:model.nq])[0]
     x0 = np.zeros((model.nx,))
     x0[:model.nq] = q0
 
-    if ocp.checkCollision(x0):
+    rviz.displayWithEESphere(x0[:4],params.robot_capsules+params.obst_capsules)
+
+
+    if ocp.model.checkCollision(x0):
         u0 = np.zeros((model.nu,)) 
 
         opti.set_value(ocp.x_init, x0)
@@ -53,6 +60,8 @@ while succ < num_ics:
             # print("Terminal constraint: ", sol.value(opti.g[-1]))
             fails += 1
     else:
+        print('skipped')
+        time.sleep(5)
         skip_ics += 1
 
 print(f'Number of failed initializations: {fails}')
