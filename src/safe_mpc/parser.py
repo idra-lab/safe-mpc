@@ -2,6 +2,7 @@ import os
 import yaml
 import numpy as np
 import argparse
+from urdf_parser_py.urdf import URDF
 
 
 def parse_args():
@@ -22,6 +23,24 @@ def parse_args():
                         help='Activation function for the neural network')
     return vars(parser.parse_args())
 
+def align_vectors(a, b):
+    b = b / np.linalg.norm(b) # normalize a
+    a = a / np.linalg.norm(a) # normalize b
+    v = np.cross(a, b)
+    # s = np.linalg.norm(v)
+    c = np.dot(a, b)
+    if np.isclose(c, -1.0):
+        return -np.eye(3, dtype=np.float64)
+
+    v1, v2, v3 = v
+    h = 1 / (1 + c)
+
+    Vmat = np.array([[0, -v3, v2],
+                  [v3, 0, -v1],
+                  [-v2, v1, 0]])
+
+    R = np.eye(3, dtype=np.float64) + Vmat + (Vmat.dot(Vmat) * h)
+    return R
 
 class Parameters:
     def __init__(self, urdf_name, rti=True, filename=None):
@@ -34,11 +53,12 @@ class Parameters:
         self.GEN_DIR = os.path.join(self.ROOT_DIR, 'generated/')
         self.NN_DIR = os.path.join(self.ROOT_DIR, 'nn_models/' + urdf_name + '/')
         self.ROBOTS_DIR = os.path.join(self.ROOT_DIR, 'robots/')
-        # temp solution
-        if urdf_name == 'ur5':
-            self.robot_urdf = f'{self.ROBOTS_DIR}/ur_description/urdf/{urdf_name}_robot.urdf'
-        else:
-            self.robot_urdf = f'{self.ROBOTS_DIR}/{urdf_name}_description/urdf/{urdf_name}.urdf'
+            
+        self.robot_urdf = f'{self.ROBOTS_DIR}/{urdf_name}_description/urdf/{urdf_name}.urdf'
+
+        self.robot_descr = URDF.from_xml_file(self.robot_urdf)
+        self.links = [self.robot_descr.links[i].name for i in range(len(self.robot_descr.links))]
+        self.joints = [self.robot_descr.joints[i] for i in range(len(self.robot_descr.joints))]
 
         if filename is None:
             parameters = yaml.load(open(self.ROOT_DIR + '/config.yaml'), Loader=yaml.FullLoader)
@@ -53,7 +73,10 @@ class Parameters:
         self.N = int(parameters['N'])
         self.dt = float(parameters['dt'])
         self.alpha = float(parameters['alpha'])
-        self.act = 'tanh' if urdf_name == 'z1' else 'relu'
+        self.act = 'gelu' if urdf_name == 'z1' else 'relu'
+        self.use_net = bool(parameters['use_net'])
+        self.n_dof_net = int(parameters['n_dof_net'])
+        self.ee_ref = np.array(parameters['ee_ref'])
 
         self.solver_type = 'SQP_RTI' if rti else 'SQP'
         self.solver_mode = parameters['solver_mode']
@@ -84,21 +107,111 @@ class Parameters:
         # For cartesian constraint
         self.obs_flag = bool(parameters['obs_flag'])
         self.abort_flag = bool(parameters['abort_flag'])
-        self.frame_name = 'gripperMover'       #  TODO: dependence on the robot
+        
+        self.frame_name = parameters['frame_ee'] 
 
-        self.box_lb = np.array([0.45, -0.55, 0.])
-        self.box_ub = np.array([0.75, -0.25, 0.3])
+        self.obs_string = parameters['obs_string']
 
-        # For triple pendulum
-        self.g = 9.81
-        self.m1 = 0.4
-        self.m2 = 0.4
-        self.m3 = 0.4
-        self.l1 = 0.8
-        self.l2 = 0.8
-        self.l3 = 0.8
+        self.ddq_max = np.array(parameters['ddq_max'])
+        self.ddx_max = np.array(parameters['ddx_max'])
 
-        self.q_min = 3 / 4 * np.pi
-        self.q_max = 5 / 4 * np.pi
-        self.dq_lim = 10
-        self.tau_lim = 10
+        # collision pairs
+
+        # obstacles
+        self.obstacles = []
+        for obstacle in parameters['obstacles']:
+            obs=dict()
+            for entry in obstacle:
+                if type(obstacle[entry]) == list: obs[entry] = np.array(obstacle[entry]).astype(float)
+                else: obs[entry] = obstacle[entry]
+            self.obstacles.append(obs)
+
+        # capsules
+        # robot capsules
+        self.robot_capsules = []
+        for capsule in parameters['robot_capsules']:
+            self.robot_capsules.append(self.create_moving_capsule(capsule))
+        # fixed capsule
+        self.obst_capsules = []
+        for capsule in parameters['obstacles_capsules']:
+            self.obst_capsules.append(self.create_fixed_capsule(capsule))
+
+        # assign pairs 
+        self.collisions_pairs = []
+        if parameters['collision_pairs'] == None:
+            for capsule_one in self.robot_capsules:
+                for capsule_two in self.robot_capsules:
+                    if capsule_one['name'] != capsule_two['name']:
+                        self.collisions_pairs.append(self.assign_pairs(capsule_one['name'],capsule_two['name'], self.obstacles, self.robot_capsules))
+                for capsule_two in self.obst_capsules:
+                    self.collisions_pairs.append(self.assign_pairs(capsule_one['name'],capsule_two['name'], self.obstacles, self.obst_capsules))
+                for obst in self.obstacles:
+                    self.collisions_pairs.append(self.assign_pairs(capsule_one['name'],obst['name'], self.obstacles, self.obstacles))
+        else:
+            for pair in parameters['collision_pairs']:
+                self.collisions_pairs.append(self.assign_pairs(pair[0],pair[1],self.obstacles,self.robot_capsules+self.obst_capsules)) 
+        
+        self.track_traj = bool(parameters['track_traj'])
+
+    def create_moving_capsule(self,capsule):
+        """
+        Function to create a capsule fixed to a robot link. Assign to the object a name, and supply the name of the URDF link on which the capsule is applied.
+        Radius and length define the capsule's dimension, link axis represents on which axis the end point of the capsule is placed, at a distance
+        equal to the length of the capsule, from the starting point of the capsule's segment. Usually axis x , for x give 0, for y 1, for z 2.
+        Spatial offset permits to select the position of the starting point with respect the frame of link, as defined in the URDF. Rotation offset contains the angles
+        for a sequence of rotation z-y-x, w.r.t. to the local link frame, to adjust the capsule orientation. Finally color is required only for visualization,
+        the first 3 values represent the RGB triple, the last is the transparency (0 total transparency, 1 no transparency).
+        """
+        # first point defined by offset from link origin, second length offset from the first one 
+        # capsule['end_points'] = [np.hstack((spatial_offset,np.ones(1))), np.hstack((spatial_offset,np.ones(1)))]
+        capsule['type'] = 'moving_capsule'
+        capsule['end_points'] = [np.hstack((np.zeros(3),np.ones(1))), np.hstack((np.zeros(3),np.ones(1)))]
+        capsule['direction'] = np.sign(self.joints[self.links.index(capsule['link_name'])].origin.xyz[capsule['link_axis']])
+        capsule['end_points'][1][capsule['link_axis']] += capsule['direction']*capsule['length']
+        capsule['end_points_T_fun'] = [None]
+        capsule['end_points_fk'] = [None,None]
+        capsule['end_points_fk_fun'] = [None]
+        return capsule
+
+    def create_fixed_capsule(self,capsule):
+        """
+        Create a fixed capsule, assigning it a name and a radius for the shape. The length instead is determined by the end points of the capsule's
+        segment, the two next arguments. Color works as in the case of the moving capsule. 
+        """
+        capsule['type'] = 'fixed_capsule'
+        capsule['end_points'] = np.array([capsule['point_A'],capsule['point_B']])
+        capsule['length'] = np.linalg.norm(capsule['end_points'][0]-capsule['end_points'][1])
+        capsule['end_points_fk'] = capsule['end_points']
+        capsule['end_points_T_fun'] = align_vectors(np.array([0,1,0]),capsule['end_points'][1]-capsule['end_points'][0])     
+        return capsule
+
+    def assign_pairs(self,obj1_name,obj2_name,obstacles_list,capsules_list):
+        """
+        Assign the collision pairs. The arguments are the name of the capsules or of the obstacle. A capsule must be always present. For the
+        moment, in case of obstacle, give it as second argument.
+        Based on the types of the pairing objects, a type is assigned.
+        """
+        args=[obj1_name,obj2_name]
+        for obstacle in obstacles_list:
+            if obj1_name == obstacle['name']:
+                args=args.reverse()
+        pair=dict()
+        pair['elements'] = [None,None]
+        pair['type'] = None
+        for capsule in capsules_list:
+            if obj1_name == capsule['name']:
+                pair['elements'][0] = capsule
+                break
+        for capsule in capsules_list:
+            if obj2_name == capsule['name']:
+                pair['elements'][1] = capsule
+                if pair['elements'][0] != None:
+                    pair['type'] = 0
+                break 
+        for obstacle in obstacles_list:
+            if obj2_name == obstacle['name']:
+                pair['elements'][1] = obstacle
+                if (pair['elements'][0] != None and obstacle['type'] == 'sphere'): pair['type'] = 1
+                elif (pair['elements'][0] != None and obstacle['type'] == 'box'): pair['type'] = 2
+                break 
+        return pair
