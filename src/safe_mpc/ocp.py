@@ -42,22 +42,25 @@ class NaiveOCP:
                 # Torque constraints
                 opti.subject_to(opti.bounded(model.tau_min, model.tau_fun(X[k], U[k]), model.tau_max))
 
-            for pair in self.params.collisions_pairs:
-                if pair['type'] == 0:
-                    dist = self.model.casadi_segment_dist(*pair['elements'][0]['end_points_fk_fun'](X[k]),*pair['elements'][1]['end_points_fk_fun'](X[k]))
-                    lb = (pair['elements'][0]['radius']+pair['elements'][1]['radius'])**2
-                    ub = 1e6
-                    opti.subject_to(opti.bounded(lb, dist, ub))
-                elif pair['type'] == 1:
-                    dist = self.model.ball_segment_dist(*pair['elements'][0]['end_points_fk_fun'](X[k]),pair['elements'][0]['length'],pair['elements'][1]['position'])
-                    lb = (pair['elements'][1]['radius']+pair['elements'][0]['radius'])**2
-                    ub = 1e6
-                    opti.subject_to(opti.bounded(lb, dist, ub))
-                elif pair['type'] == 2:
-                    for point in pair['elements'][0]['end_points_fk_fun'](X[k]):
-                        lb = pair['elements'][1]['bounds'][0]
-                        ub = pair['elements'][1]['bounds'][1]
-                        opti.subject_to(opti.bounded(lb, point[2], ub))
+            # for pair in self.params.collisions_pairs:
+            #     if pair['type'] == 0:
+            #         dist = self.model.casadi_segment_dist(*pair['elements'][0]['end_points_fk_fun'](X[k]),*pair['elements'][1]['end_points_fk_fun'](X[k]))
+            #         lb = (pair['elements'][0]['radius']+pair['elements'][1]['radius'])**2
+            #         ub = 1e6
+            #         opti.subject_to(opti.bounded(lb, dist, ub))
+            #     elif pair['type'] == 1:
+            #         dist = self.model.ball_segment_dist(*pair['elements'][0]['end_points_fk_fun'](X[k]),pair['elements'][0]['length'],pair['elements'][1]['position'])
+            #         lb = (pair['elements'][1]['radius']+pair['elements'][0]['radius'])**2
+            #         ub = 1e6
+            #         opti.subject_to(opti.bounded(lb, dist, ub))
+            #     elif pair['type'] == 2:
+            #         for point in pair['elements'][0]['end_points_fk_fun'](X[k]):
+            #             lb = pair['elements'][1]['bounds'][0]
+            #             ub = pair['elements'][1]['bounds'][1]
+            #             opti.subject_to(opti.bounded(lb, point[2], ub))
+
+            for constr in self.model.collisions_constr_fun:
+                opti.subject_to(opti.bounded(constr[1], constr[0](X[k]), constr[2]))
 
         opti.minimize(cost)
         self.opti = opti
