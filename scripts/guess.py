@@ -13,7 +13,7 @@ params = Parameters(model_name, rti=False)
 params.act = args['activation']
 params.N = args['horizon']
 params.alpha = args['alpha']
-model = AdamModel(params, args['dofs'])
+model = AdamModel(params)
 
 ocp_name = args['controller']
 ocp = get_ocp(ocp_name, model)

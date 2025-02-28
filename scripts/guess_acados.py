@@ -22,12 +22,14 @@ params.build = args['build']
 params.solver_type = 'SQP'
 params.act = args['activation']
 params.alpha = args['alpha']
-model = AdamModel(params, n_dofs=n_dofs)
+model = AdamModel(params)
 
 ocp_name = args['controller']
 params.cont_name = args['controller']
 ocp_with_net, controllers_list = get_ocp_acados(ocp_name, model)
 ocp_with_net.resetHorizon(args['horizon'])
+params.use_net = None
+model = AdamModel(params)
 ocp_naive,_ = get_ocp_acados('naive',model)
 ocp_naive.resetHorizon(args['horizon'])
 ocp_zerovel,_ = get_ocp_acados('zerovel',model) 
@@ -63,6 +65,7 @@ if not(ocp_with_net.model.params.track_traj):
             ocp_with_net.setGuess(x0_g,u0_g)
 
             status = ocp_with_net.solve(x0)
+            print(f'Status: {status} , Check guess: {ocp_with_net.checkGuess()}')
             if (status == 0 or status==2) and ocp_with_net.checkGuess():
                 print(f'Solver status {status}, x0 {x0}')
                 xg_net = copy.copy(ocp_with_net.x_temp)
@@ -99,8 +102,8 @@ if not(ocp_with_net.model.params.track_traj):
                 fails += 1
         else:
             print(f'Skipped:{x0}')
+            time.sleep(5)
             skip_ics += 1
-        time.sleep(3)
 else:
     InvKynSolver = InverseKinematicsOCP(model,ocp_with_net.traj_to_track[:,0],obstacles)
     solver_inv = InvKynSolver.instantiateProblem()
@@ -153,15 +156,15 @@ print(f'Number of failed initializations: {fails}')
 print(f'Number of skipped initial conditions: {skip_ics}')
 
 traj__track = 'traj_track' if ocp_with_net.model.params.track_traj else "" 
-with open(f'{params.DATA_DIR}{model_name}_naive_{args["horizon"]}hor_{int(params.alpha)}sm{traj__track}_guess.pkl', 'wb') as f:
+with open(f'{params.DATA_DIR}{model_name}_naive_{args["horizon"]}hor_{int(params.alpha)}sm_use_net{ocp_naive.model.params.use_net}_{traj__track}_guess.pkl', 'wb') as f:
         pickle.dump({'xg': np.asarray(x_guess_naive), 'ug': np.asarray(u_guess_naive)}, f)
-with open(f'{params.DATA_DIR}{model_name}_zerovel_{args["horizon"]}hor_{int(params.alpha)}sm{traj__track}_guess.pkl', 'wb') as f:
+with open(f'{params.DATA_DIR}{model_name}_zerovel_{args["horizon"]}hor_{int(params.alpha)}sm_use_net{ocp_naive.model.params.use_net}_{traj__track}_guess.pkl', 'wb') as f:
         pickle.dump({'xg': np.asarray(x_guess_zerovel), 'ug': np.asarray(u_guess_zerovel)}, f)
 
 if (args['controller']!= 'naive' and args['controller']!= 'zerovel'): 
     for cont in controllers_list:
         if cont in ['st','stwa','htwa','receding','parallel']:
-            with open(f'{params.DATA_DIR}{model_name}_{cont}_{args["horizon"]}hor_{int(params.alpha)}sm{traj__track}_guess.pkl', 'wb') as f:
+            with open(f'{params.DATA_DIR}{model_name}_{cont}_{args["horizon"]}hor_{int(params.alpha)}sm_use_net{ocp_naive.model.params.use_net}_{traj__track}_guess.pkl', 'wb') as f:
                 pickle.dump({'xg': np.asarray(x_guess_net), 'ug': np.asarray(u_guess_net)}, f)
 
 

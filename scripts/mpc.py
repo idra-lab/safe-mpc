@@ -3,7 +3,7 @@ import numpy as np
 from functools import reduce
 from safe_mpc.parser import Parameters, parse_args
 from safe_mpc.abstract import AdamModel
-from safe_mpc.utils import obstacles, ee_ref, get_controller, capsules, capsule_pairs
+from safe_mpc.utils import get_controller
 from safe_mpc.controller import SafeBackupController
 
 
@@ -15,14 +15,19 @@ params = Parameters(model_name, rti=True)
 params.build = args['build']
 params.act = args['activation']
 params.alpha = args['alpha']
-model = AdamModel(params, args['dofs'])
-model.ee_ref = ee_ref
+model = AdamModel(params)
+model.ee_ref = params.ee_ref
 nq = model.nq
 
 cont_name = args['controller']
-controller = get_controller(cont_name, model, obstacles, capsules, capsule_pairs)
-params.solver_type = 'SQP'
-safe_ocp = SafeBackupController(model, obstacles, capsules, capsule_pairs)
+controller = get_controller(cont_name, model)
+
+param_backup = Parameters(model_name, rti=True)
+param_backup.use_net = None
+param_backup.solver_type = 'SQP_RTI'
+param_backup.build =  args['build']
+model_backup = AdamModel(param_backup)
+safe_ocp = SafeBackupController(model_backup)
 horizon = args['horizon']
 controller.resetHorizon(horizon)
 
@@ -41,7 +46,7 @@ EVAL = False
 counters = np.zeros(5)
 tau_viol = []
 kp, kd = 0.1, 1e2
-for i in range(params.test_num):
+for i in range(3,params.test_num):
     print(f'Simulation {i + 1}/{params.test_num}')
     x0 = x_init[i]
     x_sim = np.empty((params.n_steps + 1, model.nx)) * np.nan
@@ -73,11 +78,12 @@ for i in range(params.test_num):
             if sa_flag:
                 x_viable += [controller.getLastViableState()]
                 if CALLBACK:
-                    print(f'  ABORT at step {j}, x = {x_viable[-1]}')
-                    print(f'  NN output at abort with current alpha {int(params.alpha)}: ' 
-                        f'{model.nn_func(x_viable[-1], params.alpha)}')
-                    print(f'  NN output at abort with alpha = 10: '
-                        f'{model.nn_func(x_viable[-1], 10.)}')
+                    if controller.model.params.use_net:
+                        print(f'  ABORT at step {j}, x = {x_viable[-1]}')
+                        print(f'  NN output at abort with current alpha {int(params.alpha)}: ' 
+                            f'{controller.model.safe_set.constraints_fun[0](x_viable[-1])}')
+                        # print(f'  NN output at abort with alpha = 10: '
+                        #     f'{model.nn_func(x_viable[-1], 10.)}')
                 # Instead of breaking, solve safe abort problem
                 xg = np.full((safe_ocp.N + 1, model.nx), x_viable[-1])
                 ug = np.zeros((safe_ocp.N, model.nu))
@@ -114,7 +120,7 @@ for i in range(params.test_num):
                         tau_viol.append(np.min(viol))
                         print(f'\t\tTorque {k} out of bounds: {viol}')
                 
-        if not np.all([controller.checkCollision(x) for x in controller.x_temp]):
+        if not np.all([controller.model.checkCollision(x) for x in controller.x_temp]):
             counters[2] += 1
             if EVAL:
                 print(f'\tCollision at step {j}')
@@ -148,13 +154,13 @@ for i in range(params.test_num):
                 print(f'\tCurrent controller fails: {controller.fails}')
             collisions_idx.append(i)
             break
-        if not controller.checkCollision(x_sim[j + 1]):
+        if not controller.model.checkCollision(x_sim[j + 1]):
             collisions_idx.append(i)
             if CALLBACK:
                 print(f'  FAIL COLLISION at step {j + 1}')
             break
     # Check convergence
-    if np.linalg.norm(model.jointToEE(x_sim[-1]).T - ee_ref) < params.tol_conv:
+    if np.linalg.norm(model.jointToEE(x_sim[-1]).T - controller.model.ee_ref) < params.tol_conv:
         conv_idx.append(i)
         if CALLBACK:
             print('  SUCCESS !!')

@@ -5,7 +5,7 @@ from casadi import Function, norm_2
 from acados_template import AcadosModel, AcadosOcp, AcadosOcpSolver
 from copy import deepcopy
 import casadi as cs
-
+import sympy as sym
 
 class AbstractController:
     def __init__(self, model):
@@ -50,7 +50,7 @@ class AbstractController:
         self.ocp.constraints.idxbx_e = np.arange(self.model.nx)
         
         # Nonlinear constraints
-        self.nl_con_0, self.nl_con, self.nl_con_e = self.model.generate_NLconstraints_list()
+        self.nl_con_0, self.nl_con, self.nl_con_e = self.model.NL_external
         self.idxhs_0,self.idxhs,self.idxhs_e = np.zeros(0),np.zeros(0),np.zeros(0)
         self.zl_0,self.zu_0,self.Zl_0,self.Zu_0 = np.zeros(0),np.zeros(0),np.zeros(0),np.zeros(0)
         self.zl,self.zu,self.Zl,self.Zu = np.zeros(0),np.zeros(0),np.zeros(0),np.zeros(0)
@@ -116,6 +116,59 @@ class AbstractController:
                             'time_glob', 'time_reg', 'time_tot']
         self.last_status = 4
 
+        self.track_traj = self.model.params.track_traj
+        if self.track_traj:
+            self.a_shape_8 = self.params.a_shape_8
+            self.offset_traj = np.array(self.params.offset_traj).reshape(3,1)
+            a_sym,t_sym = sym.symbols('a t')
+            x_sym = (a_sym*sym.cos(t_sym))/(1+sym.sin(t_sym)**2)
+            y_sym = (a_sym*sym.cos(t_sym)*sym.sin(t_sym))/(1+sym.sin(t_sym)**2)
+
+            dx=sym.simplify(sym.diff(x_sym,t_sym))
+            dy=sym.simplify(sym.diff(y_sym,t_sym))
+
+            self.dx_fun = sym.lambdify(t_sym,dx.subs({a_sym:self.a_shape_8}))
+            self.dy_fun = sym.lambdify(t_sym,dy.subs({a_sym:self.a_shape_8})) 
+
+            rot_mat__traj_x = np.array([[1,0,0],
+                                        [0,np.cos(self.params.theta_rot_traj[0]),-np.sin(self.params.theta_rot_traj[0])],
+                                        [0,np.sin(self.params.theta_rot_traj[0]),np.cos(self.params.theta_rot_traj[0])]])
+
+            rot_mat__traj_y = np.array([[np.cos(self.params.theta_rot_traj[1]),0,np.sin(self.params.theta_rot_traj[1])],
+                                        [0,1,0],
+                                        [-np.sin(self.params.theta_rot_traj[1]),0,np.cos(self.params.theta_rot_traj[1])]])
+
+            rot_mat__traj_z = np.array([[np.cos(self.params.theta_rot_traj[2]),-np.sin(self.params.theta_rot_traj[2]),0],
+                                        [np.sin(self.params.theta_rot_traj[2]), np.cos(self.params.theta_rot_traj[2]),0],
+                                        [0,0,1]])
+            self.rot_mat__traj = rot_mat__traj_x@rot_mat__traj_y@rot_mat__traj_z
+
+            self.traj_to_track = np.zeros((3,self.N))
+            self.theta_traj = 0
+            self.vel_max_traj = self.params.vel_max_traj
+            self.acc_traj = self.vel_max_traj/(self.params.n_steps*0.9)
+            self.vel_traj = self.vel_max_traj if self.params.vel_const else 0
+
+            self.generate_trajectory(self.vel_traj)
+
+    def generate_trajectory(self,velocity):
+        traj = np.zeros((3,self.N))
+        theta = self.theta_traj
+        self.theta_traj = self.theta_next_from_vel(self.theta_traj,velocity)
+        for i in range(self.N):
+            traj[:,i] = self.get_point_from_theta(theta) 
+            theta = self.theta_next_from_vel(theta,velocity)
+        self.traj_to_track = self.rot_mat__traj @ traj + self.offset_traj
+        if not(self.params.vel_const) and (self.vel_traj < self.vel_max_traj):
+            self.vel_traj += self.acc_traj
+
+    def get_point_from_theta(self,theta):
+        return np.array([(self.a_shape_8*np.cos(theta))/(1+np.sin(theta)**2),(self.a_shape_8*np.cos(theta)*np.sin(theta))/(1+np.sin(theta)**2),0] )
+    
+    def theta_next_from_vel(self,theta,vel_set):
+        return theta+(vel_set/(np.sqrt(self.dx_fun(theta)**2+self.dy_fun(theta)**2)))*self.params.dt
+
+
     def additionalSetting(self):
         pass
 
@@ -124,15 +177,17 @@ class AbstractController:
         num_nl_e = len(self.nl_con_e)
         safe_set_constraints = self.model.safe_set.get_constraints()
         bounds = self.model.safe_set.get_bounds()
+        constraint_num = 0
         for i, constr in enumerate(safe_set_constraints):
             self.nl_con_e.append([constr,bounds[i][0],bounds[i][1]])
+            constraint_num += constr.shape[0]
 
         if self.model.params.use_net:
             self.ocp.solver_options.model_external_shared_lib_dir = self.model.safe_set.l4c_model.shared_lib_dir
             self.ocp.solver_options.model_external_shared_lib_name = self.model.safe_set.l4c_model.name
 
         if soft:
-            self.idxhs_e = np.hstack((self.idxhs_e,np.arange(num_nl_e, num_nl_e + len(safe_set_constraints))))
+            self.idxhs_e = np.hstack((self.idxhs_e,np.arange(num_nl_e, num_nl_e + constraint_num)))
 
             self.zl_e = np.hstack((self.zl_e,np.zeros(self.idxhs_e.size)))
             self.zu_e = np.hstack((self.zu_e,np.zeros(self.idxhs_e.size)))
@@ -144,11 +199,13 @@ class AbstractController:
         num_nl = len(self.nl_con)
         safe_set_constraints = self.model.safe_set.get_constraints()
         bounds = self.model.safe_set.get_bounds()
+        constraint_num = 0
         for i, constr in enumerate(safe_set_constraints):
             self.nl_con.append([constr,bounds[i][0],bounds[i][1]])
+            constraint_num += constr.shape[0]
 
         if soft:
-            self.idxhs = np.hstack((self.idxhs,np.arange(num_nl, num_nl + len(safe_set_constraints))))
+            self.idxhs = np.hstack((self.idxhs,np.arange(num_nl, num_nl + constraint_num)))
 
             # Set zl initially to zero, then apply receding constraint in the step method
             self.zl = np.hstack((self.zl,np.zeros(self.idxhs.size)))
@@ -171,6 +228,10 @@ class AbstractController:
         self.ocp_solver.set(0, 'x', x0)
         self.ocp_solver.set(self.N, 'x', self.x_guess[-1])
 
+        if self.track_traj:
+            for i in range(self.N+1):
+                self.ocp_solver.set(i,'p',np.array([self.traj_to_track[0,i],self.traj_to_track[1,i],self.traj_to_track[2,i],self.params.alpha,1]))
+            self.generate_trajectory(self.vel_traj)
         # Solve the OCP
         status = self.ocp_solver.solve()
 
@@ -360,7 +421,7 @@ class RecedingController(STWAController):
 
     def step(self, x):
         # Terminal constraint
-        self.ocp_solver.cost_set(self.N, "zl", self.model.params.ws_t * np.ones((1,)))
+        self.ocp_solver.cost_set(self.N, self.model.safe_set.constraint_bound, self.model.params.ws_t * np.ones((self.zl_e.size,)))
         # Receding constraint
         # lh = self.ocp.constraints.lh
         # lh_rec = np.copy(lh)
@@ -391,7 +452,7 @@ class RecedingController(STWAController):
             return self.u_guess[0], True
 
         if status == 0 and self.model.checkStateConstraints(self.x_temp)  \
-                and np.all([self.checkCollision(x) for x in self.x_temp]):
+                and np.all([self.model.checkCollision(x) for x in self.x_temp]):
             self.fails = 0
             for i in range(self.r + 2, self.N + 1):
                 if self.model.checkSafeConstraints(self.x_temp[i]):
