@@ -14,27 +14,20 @@ import l4casadi as l4c
 from .safe_set import NetSafeSet, AnalyticSafeSet
 
 class AdamModel:
-    def __init__(self, params, n_dofs):
+    def __init__(self, params):
         self.params = params
         self.amodel = AcadosModel()
         # Robot dynamics with Adam (IIT)
         #                # URDF.from_xml_file(params.robot_urdf)
-        try:
-            n_dofs = n_dofs if n_dofs else len(self.params.robot_descr.joints)
-            if n_dofs > len(self.params.robot_descr.joints) or n_dofs < 1:
-                raise ValueError
-        except ValueError:
-            print(f'\nInvalid number of degrees of freedom! Must be > 1 and <= {len(self.params.robot_descr.joints)}\n')
-            exit()
-        
+                
         robot_joints = []
         jj=0
-        while jj < n_dofs:
+        while jj < self.params.nq:
             for jointt in self.params.robot_descr.joints:
                 if jointt.type != 'fixed':
                     robot_joints.append(jointt)
                     jj +=1
-                    if jj == n_dofs:
+                    if jj == self.params.nq:
                         break
 
         joint_names = [joint.name for joint in robot_joints]
@@ -67,7 +60,7 @@ class AdamModel:
         self.nx = self.amodel.x.size()[0]
         self.nu = self.amodel.u.size()[0]
         self.ny = self.nx + self.nu
-        self.nq = nq
+        self.nq = self.params.nq
         self.nv = nq
         self.np = self.amodel.p.size()[0]
 
@@ -107,10 +100,10 @@ class AdamModel:
 
         # Analytic or network set
         if self.params.use_net == True:
-            self.safe_set = NetSafeSet(self.x,self.p,self.nq,self.params)
+            self.safe_set = NetSafeSet(self.params,self.x,self.p,self.nq)
             self.net_name = '_net'
         elif self.params.use_net == False: 
-            self.safe_set = AnalyticSafeSet(self.x,self.x_min,self.x_max,self.nq,self.params,self.t_glob,self.jac)
+            self.safe_set = AnalyticSafeSet(self.params,self.x,self.p,self.x_min,self.x_max,self.nq,self.t_glob,self.jac)
             self.net_name = 'analytic_set'
         else:
             self.safe_set=None
@@ -156,7 +149,8 @@ class AdamModel:
             capsule['end_points_fk_fun'] = deepcopy(cs.Function(f'fun_fk_{n_cap}',[self.x],[capsule['end_points'][0], capsule['end_points'][1]]))
             n_cap += 1
 
-        self.collisions_constr_fun = self.gen_collisions_constr_fun()
+        self.NL_external = self.generate_NLconstraints_list()
+        self.collisions_constr_fun = self.gen_collisions_constr_fun(self.NL_external[2])
 
     def jointToEE(self, x):
         return np.array(self.ee_fun(x))
@@ -257,6 +251,13 @@ class AdamModel:
         d = cs.sum1((obs_pos-(A_s+(B_s-A_s)*t))**2) 
         return d
     
+    def ball_ee_dist(self,obs):
+        return (self.t_glob - obs['position']).T @ (self.t_glob - obs['position'])
+    
+    def floor_ee_dist(self,obs):
+        return self.t_glob[2] - obs['bounds'][0]
+
+    
     def generate_NLconstraints_list(self):
         constraint_list_0 = []
         constraint_list_1_N_minus_1 = []
@@ -267,39 +268,57 @@ class AdamModel:
         constraint_list_1_N_minus_1.append([self.tau,self.tau_min,self.tau_max])
 
         # collisions
-        for pair in self.params.collisions_pairs:
-            if pair['type'] == 0:
-                constraint_list_0.append([self.casadi_segment_dist(*pair['elements'][0]['end_points_fk'],*pair['elements'][1]['end_points_fk']), \
-                                          (pair['elements'][0]['radius']+pair['elements'][1]['radius'])**2,1e6])
-                constraint_list_1_N_minus_1.append([self.casadi_segment_dist(*pair['elements'][0]['end_points_fk'],*pair['elements'][1]['end_points_fk']), \
-                                          (pair['elements'][0]['radius']+pair['elements'][1]['radius'])**2,1e6])
-                constraint_list_N.append([self.casadi_segment_dist(*pair['elements'][0]['end_points_fk'],*pair['elements'][1]['end_points_fk']), \
-                                          (pair['elements'][0]['radius']+pair['elements'][1]['radius'])**2,1e6])
-            elif pair['type'] == 1:
-                constraint_list_0.append([self.ball_segment_dist(*pair['elements'][0]['end_points_fk'],pair['elements'][0]['length'],pair['elements'][1]['position']), \
-                                          (pair['elements'][1]['radius']+pair['elements'][0]['radius'])**2,1e6])
-                constraint_list_1_N_minus_1.append([self.ball_segment_dist(*pair['elements'][0]['end_points_fk'],pair['elements'][0]['length'],pair['elements'][1]['position']), \
-                                          (pair['elements'][1]['radius']+pair['elements'][0]['radius'])**2,1e6])
-                constraint_list_N.append([self.ball_segment_dist(*pair['elements'][0]['end_points_fk'],pair['elements'][0]['length'],pair['elements'][1]['position']), \
-                                          (pair['elements'][1]['radius']+pair['elements'][0]['radius'])**2,1e6])
-            elif pair['type'] == 2:
-                for point in pair['elements'][0]['end_points_fk']:
-                    constraint_list_0.append([point[2],pair['elements'][1]['bounds'][0],pair['elements'][1]['bounds'][1]])
-                    constraint_list_1_N_minus_1.append([point[2],pair['elements'][1]['bounds'][0],pair['elements'][1]['bounds'][1]])
-                    constraint_list_N.append([point[2],pair['elements'][1]['bounds'][0],pair['elements'][1]['bounds'][1]])
+        if len(self.params.collisions_pairs)>0:
+            for pair in self.params.collisions_pairs:
+                if pair['type'] == 0:
+                    constraint_list_0.append([self.casadi_segment_dist(*pair['elements'][0]['end_points_fk'],*pair['elements'][1]['end_points_fk']), \
+                                            (pair['elements'][0]['radius']+pair['elements'][1]['radius'])**2,1e6])
+                    constraint_list_1_N_minus_1.append([self.casadi_segment_dist(*pair['elements'][0]['end_points_fk'],*pair['elements'][1]['end_points_fk']), \
+                                            (pair['elements'][0]['radius']+pair['elements'][1]['radius'])**2,1e6])
+                    constraint_list_N.append([self.casadi_segment_dist(*pair['elements'][0]['end_points_fk'],*pair['elements'][1]['end_points_fk']), \
+                                            (pair['elements'][0]['radius']+pair['elements'][1]['radius'])**2,1e6])
+                elif pair['type'] == 1:
+                    constraint_list_0.append([self.ball_segment_dist(*pair['elements'][0]['end_points_fk'],pair['elements'][0]['length'],pair['elements'][1]['position']), \
+                                            (pair['elements'][1]['radius']+pair['elements'][0]['radius'])**2,1e6])
+                    constraint_list_1_N_minus_1.append([self.ball_segment_dist(*pair['elements'][0]['end_points_fk'],pair['elements'][0]['length'],pair['elements'][1]['position']), \
+                                            (pair['elements'][1]['radius']+pair['elements'][0]['radius'])**2,1e6])
+                    constraint_list_N.append([self.ball_segment_dist(*pair['elements'][0]['end_points_fk'],pair['elements'][0]['length'],pair['elements'][1]['position']), \
+                                            (pair['elements'][1]['radius']+pair['elements'][0]['radius'])**2,1e6])
+                elif pair['type'] == 2:
+                    for point in pair['elements'][0]['end_points_fk']:
+                        constraint_list_0.append([point[2],pair['elements'][1]['bounds'][0]+pair['elements'][0]['radius'],pair['elements'][1]['bounds'][1]-pair['elements'][0]['radius']])
+                        constraint_list_1_N_minus_1.append([point[2],pair['elements'][1]['bounds'][0]+pair['elements'][0]['radius'],pair['elements'][1]['bounds'][1]-pair['elements'][0]['radius']])
+                        constraint_list_N.append([point[2],pair['elements'][1]['bounds'][0]+pair['elements'][0]['radius'],pair['elements'][1]['bounds'][1]-pair['elements'][0]['radius']])
+        elif len(self.params.obstacles)>0:
+            for obs in self.params.obstacles:
+                if obs['type'] == 'sphere':
+                    constr_expr = self.ball_ee_dist(obs)
+                    constraint_list_0.append([constr_expr, self.params.ee_radius**2,1e6])
+                    constraint_list_1_N_minus_1.append([constr_expr, self.params.ee_radius**2,1e6])
+                    constraint_list_N.append([constr_expr,self.params.ee_radius**2,1e6])
+                if obs['type'] == 'box':
+                    constr_expr = self.floor_ee_dist(obs)
+                    constraint_list_0.append([constr_expr,obs['bounds'][0] + self.params.ee_radius,obs['bounds'][1] - self.params.ee_radius])
+                    constraint_list_1_N_minus_1.append([constr_expr,obs['bounds'][0] + self.params.ee_radius,obs['bounds'][1] - self.params.ee_radius])
+                    constraint_list_N.append([constr_expr,obs['bounds'][0] + self.params.ee_radius,obs['bounds'][1] - self.params.ee_radius])
+
+
         return constraint_list_0,constraint_list_1_N_minus_1,constraint_list_N
 
-    def gen_collisions_constr_fun(self):
+    def gen_collisions_constr_fun(self,constraint_list):
         fun_list = []
-        for pair in self.params.collisions_pairs:
-            if pair['type'] == 0:
-                fun_list.append([cs.Function(f"{pair['elements'][0]['name']}_{pair['elements'][1]['name']}",[self.x],[self.casadi_segment_dist(*pair['elements'][0]['end_points_fk'],*pair['elements'][1]['end_points_fk'])]), \
-                                          (pair['elements'][0]['radius']+pair['elements'][1]['radius'])**2,1e6])
-            elif pair['type'] == 1:
-                fun_list.append([cs.Function(f"{pair['elements'][0]['name']}_{pair['elements'][1]['name']}",[self.x],[self.ball_segment_dist(*pair['elements'][0]['end_points_fk'],pair['elements'][0]['length'],pair['elements'][1]['position'])]), \
-                                          (pair['elements'][1]['radius']+pair['elements'][0]['radius'])**2,1e6])
-            elif pair['type'] == 2:
-                for i in range(len(pair['elements'][0]['end_points'])):
-                    fun_list.append([cs.Function(f"{pair['elements'][0]['name']}_{pair['elements'][1]['name']}_{i}",[self.x],[pair['elements'][0]['end_points_fk'][i][2]])\
-                                     ,pair['elements'][1]['bounds'][0],pair['elements'][1]['bounds'][1]])
+        for i,constr in enumerate(constraint_list):
+             fun_list.append([cs.Function(f"collision_constraint_{i}",[self.x],[constr[0]]), \
+                                          constr[1],constr[2]])
+        # for pair in self.params.collisions_pairs:
+        #     if pair['type'] == 0:
+        #         fun_list.append([cs.Function(f"{pair['elements'][0]['name']}_{pair['elements'][1]['name']}",[self.x],[self.casadi_segment_dist(*pair['elements'][0]['end_points_fk'],*pair['elements'][1]['end_points_fk'])]), \
+        #                                   (pair['elements'][0]['radius']+pair['elements'][1]['radius'])**2,1e6])
+        #     elif pair['type'] == 1:
+        #         fun_list.append([cs.Function(f"{pair['elements'][0]['name']}_{pair['elements'][1]['name']}",[self.x],[self.ball_segment_dist(*pair['elements'][0]['end_points_fk'],pair['elements'][0]['length'],pair['elements'][1]['position'])]), \
+        #                                   (pair['elements'][1]['radius']+pair['elements'][0]['radius'])**2,1e6])
+        #     elif pair['type'] == 2:
+        #         for i in range(len(pair['elements'][0]['end_points'])):
+        #             fun_list.append([cs.Function(f"{pair['elements'][0]['name']}_{pair['elements'][1]['name']}_{i}",[self.x],[pair['elements'][0]['end_points_fk'][i][2]])\
+        #                              ,pair['elements'][1]['bounds'][0]+pair['elements'][0]['radius'],pair['elements'][1]['bounds'][1]-pair['elements'][0]['radius']])
         return fun_list
