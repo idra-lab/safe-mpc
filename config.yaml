@@ -6,6 +6,8 @@ N: 45                     # horizon length --> 45 for z1
 dt: 5e-3                  # time step
 alpha: 10.                # safety margin 
 
+n_dofs: 4                 # number of controlled joints 
+
 solver_mode: 'BALANCE'    # HPIPM mode, can be --> 'BALANCE', 'ROBUST', 'SPEED', 'SPEED_ABS'
 nlp_max_iter: 400
 rti_iter: 1
@@ -26,7 +28,7 @@ tol_x: 5e-3               # state -4
 tol_tau: 1e-6             # torque
 tol_dyn: 1e-6             # dynamics
 tol_obs: 1e-4             # obstacle tolerance -6
-tol_nn: 1e-4              # neural network -6
+tol_safe_set: 1e-4              # neural network -6
 
 eps: 1e-6                 # for numerical stability in NN function 
 tol_conv: 1e-3            # convergence tolerance for the task
@@ -39,13 +41,12 @@ ws_r: 1e4
 obs_flag: true           # activation of Cartesian constraints
 obs_string: '_obs'
 abort_flag: true         # activation of abort mechanism for receding MPC
-use_net: false            # use the network safe set if true, otherwise analytic safe set
+use_net: true            # use the network safe set if true, otherwise analytic safe set
 
 n_dof_net: 4
 frame_ee: 'gripperMover'
 ee_ref: [0.6, 0.28, 0.078]
-
-track_traj: false
+ee_radius: 0.05
 
 ddq_max: [0.1       , 1.        , 1.66666667, 2.33333333, 2.33333333, 2.33333333]
 ddx_max: [0.13333333, 0.13333333, 0.13333333]
@@ -102,6 +103,8 @@ robot_capsules:
     rotation_offset: [0,-0.06283185307179587,0]
     color: [0,0,1,0.3]
 
+use_capsules: false
+
 obstacles_capsules:
   - name: 'fixed1'
     radius: 0.05
@@ -122,14 +125,23 @@ obstacles_capsules:
     color: [0, 1, 1, 1]
 
 collision_pairs:
-  #  - ['arm','ee']
-   - ['ee','ball']
+   - ['arm','ee']
+  # - ['ee','ball']
    - ['ee', 'floor']
-  #  - ['forearm','floor']
-  #  - ['forearm', 'ball']
-  # - ['ee','fixed1']
-  # - ['ee','fixed2']
-  # - ['ee','fixed3']
-  # - ['forearm','fixed1']
-  # - ['forearm','fixed2']
-  # - ['forearm','fixed3']
+   - ['forearm','floor']
+  # - ['forearm', 'ball']
+   - ['ee','fixed1']
+   - ['ee','fixed2']
+   - ['ee','fixed3']
+   - ['forearm','fixed1']
+   - ['forearm','fixed2']
+   - ['forearm','fixed3']
+
+
+track_traj: false
+dim_shape_8: 0.3
+offset_traj: [0.39, 0.,0.1]
+theta_rot_traj: [0,0,1.5707963267948966]
+vel_max_traj: 0.65
+vel_const: false
+n_steps_tracking: 5000
