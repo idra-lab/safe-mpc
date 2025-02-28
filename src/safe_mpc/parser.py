@@ -75,6 +75,7 @@ class Parameters:
         self.alpha = float(parameters['alpha'])
         self.act = 'gelu' if urdf_name == 'z1' else 'relu'
         self.use_net = bool(parameters['use_net'])
+        self.nq = int(parameters['n_dofs'])
         self.n_dof_net = int(parameters['n_dof_net'])
         self.ee_ref = np.array(parameters['ee_ref'])
 
@@ -91,7 +92,7 @@ class Parameters:
         self.tol_tau = float(parameters['tol_tau'])
         self.tol_dyn = float(parameters['tol_dyn'])
         self.tol_obs = float(parameters['tol_obs'])
-        self.tol_nn = float(parameters['tol_nn'])
+        self.tol_safe_set = float(parameters['tol_safe_set'])
 
         self.Q = np.array(parameters['Q'])
         self.R = float(parameters['R'])         # eye(nu) * R
@@ -109,6 +110,7 @@ class Parameters:
         self.abort_flag = bool(parameters['abort_flag'])
         
         self.frame_name = parameters['frame_ee'] 
+        self.ee_radius = float(parameters['ee_radius'])
 
         self.obs_string = parameters['obs_string']
 
@@ -126,6 +128,7 @@ class Parameters:
                 else: obs[entry] = obstacle[entry]
             self.obstacles.append(obs)
 
+        self.use_capsules=bool(parameters['use_capsules'])
         # capsules
         # robot capsules
         self.robot_capsules = []
@@ -135,23 +138,31 @@ class Parameters:
         self.obst_capsules = []
         for capsule in parameters['obstacles_capsules']:
             self.obst_capsules.append(self.create_fixed_capsule(capsule))
-
-        # assign pairs 
+                    
         self.collisions_pairs = []
-        if parameters['collision_pairs'] == None:
-            for capsule_one in self.robot_capsules:
-                for capsule_two in self.robot_capsules:
-                    if capsule_one['name'] != capsule_two['name']:
-                        self.collisions_pairs.append(self.assign_pairs(capsule_one['name'],capsule_two['name'], self.obstacles, self.robot_capsules))
-                for capsule_two in self.obst_capsules:
-                    self.collisions_pairs.append(self.assign_pairs(capsule_one['name'],capsule_two['name'], self.obstacles, self.obst_capsules))
-                for obst in self.obstacles:
-                    self.collisions_pairs.append(self.assign_pairs(capsule_one['name'],obst['name'], self.obstacles, self.obstacles))
-        else:
-            for pair in parameters['collision_pairs']:
-                self.collisions_pairs.append(self.assign_pairs(pair[0],pair[1],self.obstacles,self.robot_capsules+self.obst_capsules)) 
+        if self.use_capsules:
+        # assign pairs 
+            if parameters['collision_pairs'] == None:
+                for capsule_one in self.robot_capsules:
+                    for capsule_two in self.robot_capsules:
+                        if capsule_one['name'] != capsule_two['name']:
+                            self.collisions_pairs.append(self.assign_pairs(capsule_one['name'],capsule_two['name'], self.obstacles, self.robot_capsules))
+                    for capsule_two in self.obst_capsules:
+                        self.collisions_pairs.append(self.assign_pairs(capsule_one['name'],capsule_two['name'], self.obstacles, self.obst_capsules))
+                    for obst in self.obstacles:
+                        self.collisions_pairs.append(self.assign_pairs(capsule_one['name'],obst['name'], self.obstacles, self.obstacles))
+            else:
+                for pair in parameters['collision_pairs']:
+                    self.collisions_pairs.append(self.assign_pairs(pair[0],pair[1],self.obstacles,self.robot_capsules+self.obst_capsules)) 
         
         self.track_traj = bool(parameters['track_traj'])
+        if self.track_traj: 
+            self.n_steps=int(parameters['n_steps_tracking'])
+            self.dim_shape_8 = float(parameters['dim_shape_8'])
+            self.offset_traj = np.array(parameters['offset_traj'])
+            self.theta_rot_traj = np.array(parameters['theta_rot_traj'])
+            self.vel_max_traj = float(parameters['vel_max_traj'])
+            self.vel_const = bool(parameters['vel_const'])
 
     def create_moving_capsule(self,capsule):
         """
