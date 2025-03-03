@@ -129,9 +129,9 @@ capsules.append(create_moving_capsule('arm','link02',0,0.05,0.35,[0,0,0],rotatio
 capsules.append(create_moving_capsule('ee','link05',0,0.05,0.22,[0,0,0],None))
 #create_capsule('moving','link03',0.05,0.1,capsules,-0.0,color=[0,0,1,0.3],rotation_offset=-np.pi/6)
 capsules.append(create_moving_capsule('forearm','link03',0,0.05,0.16,[0.06,0,0.05],rotation_offset=[0,-np.pi/50,0],color=[0,0,1,0.3]))
-capsules.append(create_fixed_capsule('fixed1',0.05,np.array([0.5, 0.20, 0.]),np.array([0.5, 0.20, 0.25]),color=[0, 1, 1, 1]))
-capsules.append(create_fixed_capsule('fixed2',0.05,np.array([0.5, -0.20, 0.]),np.array([0.5, -0.20, 0.25]),color=[0, 1, 1, 1]))
-capsules.append(create_fixed_capsule('fixed3',0.05,np.array([0.5, -0.20, 0.25]),np.array([0.5, 0.20, 0.25]),color=[0, 1, 1, 1]))
+capsules.append(create_fixed_capsule('fixed1',0.025,np.array([0.5, 0.175, 0.]),np.array([0.5, 0.175, 0.225]),color=[0, 1, 1, 1]))
+capsules.append(create_fixed_capsule('fixed2',0.025,np.array([0.5, -0.175, 0.]),np.array([0.5, -0.175, 0.225]),color=[0, 1, 1, 1]))
+capsules.append(create_fixed_capsule('fixed3',0.025,np.array([0.5, -0.175, 0.225]),np.array([0.5, 0.175, 0.225]),color=[0, 1, 1, 1]))
 
 # capsules.append(create_fixed_capsule('fixed1',0.01,np.array([0.3, 0.0, 0.]),np.array([0.3, 0.0, 0.25]),color=[0, 1, 1, 1]))
 # capsules.append(create_fixed_capsule('fixed2',0.01,np.array([0.7, 0.0, 0.]),np.array([0.7, 0.0, 0.25]),color=[0, 1, 1, 1]))
@@ -157,7 +157,7 @@ def get_ocp(ocp_name, model, obstacles, capsule, capsule_pairs) -> NaiveOCP:
     ocps = { 'naive': NaiveOCP,
              'zerovel': TerminalZeroVelOCP,
              'st': SoftTerminalOCP,
-             'htwa': SoftTerminalOCP,
+             'htwa': HardTerminalOCP,
              'receding': SoftTerminalOCP, 
              'real': SoftTerminalOCP}
     if ocp_name in ocps:
