@@ -108,6 +108,7 @@ class AdamModel:
         self.t_loc = np.array([0.035, 0., 0.])
         self.t_glob = T_ee[:3, 3] + T_ee[:3, :3] @ self.t_loc
         self.ee_fun = Function('ee_fun', [self.x], [self.t_glob])
+        self.ee_rot = Function('ee_rot', [self.x], [T_ee[:3, :3]])
 
         # Joint limits
         joint_lower = np.array([joint.limit.lower for joint in robot_joints])
@@ -188,22 +189,23 @@ class AdamModel:
         }
         act = self.params.act
         act_fun = nls[act]
+        nn_dofs = self.params.nn_dofs
 
         if act in ['tanh']: #, 'sine']:
             ub = max(self.x_max[self.nq:]) * np.sqrt(self.nq)
         else:
             ub = 1
 
-        model = NeuralNetwork(8, 256, 1, act_fun, ub)
-        nn_data = torch.load(f'{self.params.NN_DIR}4dof_{act}{self.obs_string}.pt',
+        model = NeuralNetwork(self.params.nn_dofs * 2, 256, 1, act_fun, ub)
+        nn_data = torch.load(f'{self.params.NN_DIR}{nn_dofs}dof_{act}{self.obs_string}.pt',
                              map_location=torch.device('cpu'))
         model.load_state_dict(nn_data['model'])
 
         x_cp = deepcopy(self.x)
         x_cp[self.nq] += self.params.eps
-        vel_norm = norm_2(x_cp[self.nq:self.nq + 4])
-        pos = (x_cp[:4] - nn_data['mean']) / nn_data['std']
-        vel_dir = x_cp[self.nq:self.nq + 4] / vel_norm
+        vel_norm = norm_2(x_cp[self.nq:self.nq + nn_dofs])
+        pos = (x_cp[:nn_dofs] - nn_data['mean']) / nn_data['std']
+        vel_dir = x_cp[self.nq:self.nq + nn_dofs] / vel_norm
         state = vertcat(pos, vel_dir)
 
         self.l4c_model = l4c.L4CasADi(model,
@@ -296,11 +298,15 @@ class AbstractController:
         self.ocp.cost.cost_type = 'EXTERNAL'
         self.ocp.cost.cost_type_e = 'EXTERNAL'
 
+        # Tras
         t_glob = self.model.t_glob
         delta = t_glob - self.model.p[:3]
         track_ee = delta.T @ self.Q @ delta 
-        self.ocp.model.cost_expr_ext_cost = track_ee + self.model.u.T @ self.R @ self.model.u
-        self.ocp.model.cost_expr_ext_cost_e = track_ee
+        # Rot
+        T_ee = self.model.fk(np.eye(4), self.model.x[:self.model.nq])
+
+        self.ocp.model.cost_expr_ext_cost = track_ee + self.model.u.T @ self.R @ self.model.u #+ cs.trace((np.eye(3) - T_ee[:3,:3]) @ self.Q)
+        self.ocp.model.cost_expr_ext_cost_e = track_ee #+ cs.trace((np.eye(3) - T_ee[:3,:3]) @ self.Q)
         self.ocp.parameter_values = np.hstack([self.model.ee_ref, [self.params.alpha, 1.]])
 
         # Capsules end-points forward kinematics
@@ -502,6 +508,19 @@ class AbstractController:
         self.nl_lb_e.append(np.array([0.]))
         self.nl_ub_e.append(np.array([1e6]))
 
+        nq = self.model.nq
+        nn_dofs = self.params.nn_dofs
+        if nq > nn_dofs:
+            # Terminal constraint -> middle joint position, zero velocity
+            x_middle = (self.model.x_min[nn_dofs:nq] \
+                        + self.model.x_max[nn_dofs:nq]) / 2
+            self.ocp.constraints.lbx_e[nn_dofs:nq] = x_middle
+            self.ocp.constraints.ubx_e[nn_dofs:nq] = x_middle
+
+            self.ocp.constraints.lbx_e[nq + nn_dofs:] = np.zeros(nq - nn_dofs)
+            self.ocp.constraints.ubx_e[nq + nn_dofs:] = np.zeros(nq - nn_dofs)
+            # TODO: may add these also to the soft constraint?
+
         if soft:
             self.ocp.constraints.idxsh_e = np.array([num_nl_e])
 
@@ -523,6 +542,14 @@ class AbstractController:
 
         self.nl_lb_0.append(np.array([0.]))
         self.nl_ub_0.append(np.array([1e6]))    
+
+        nq = self.model.nq
+        nn_dofs = self.params.nn_dofs
+        if nq > nn_dofs:
+            # Terminal constraint -> middle joint position, zero velocity
+            self.x_middle = (self.model.x_min[nn_dofs:nq] \
+                            + self.model.x_max[nn_dofs:nq]) / 2
+            self.x_zerovel = np.zeros(nq - nn_dofs)
 
         if soft:
             self.ocp.constraints.idxsh = np.array([num_nl])

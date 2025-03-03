@@ -76,7 +76,9 @@ class NaiveOCP:
         for k in range(N + 1):
                 
             ee_pos = model.ee_fun(X[k])
+            ee_rot = model.ee_rot(X[k])
             cost += (ee_pos - ee_ref).T @ Q @ (ee_pos - ee_ref)
+            # cost += cs.trace((np.eye(3) - ee_rot) @ Q)
 
             if k < N:
                 cost += U[k].T @ R @ U[k]
@@ -193,37 +195,32 @@ class NaiveOCP:
 
 
 class TerminalZeroVelOCP(NaiveOCP):
-    def __init__(self, model, obstacles=None):
-        super().__init__(model, obstacles)
+    def __init__(self, model, obstacles=None, capsules=None, capsule_pairs=None):
+        super().__init__(model, obstacles, capsules, capsule_pairs)
 
     def additionalSetting(self):
         self.opti.subject_to(self.X[-1][self.nq:] == 0.)
 
-class AccBoundsOCP(NaiveOCP):
-    def __init__(self, model, obstacles=None):
-        super().__init__(model, obstacles)
-
-    def additionalSetting(self):
-        nq = self.model.nq
-        ddq_max = np.ones(self.model.nv) * 10.
-        dq_min = - self.X[-1][nq:] ** 2 / ddq_max + self.X[-1][:nq]
-        dq_max = self.X[-1][nq:] ** 2 / ddq_max + self.X[-1][:nq]
-        self.opti.subject_to(dq_min >= self.model.x_min[:nq])        
-        self.opti.subject_to(dq_max <= self.model.x_max[:nq])
-
 
 class HardTerminalOCP(NaiveOCP):
-    def __init__(self, model, obstacles=None):
-        super().__init__(model, obstacles)
+    def __init__(self, model, obstacles=None, capsules=None, capsule_pairs=None):
+        super().__init__(model, obstacles, capsules, capsule_pairs)
 
     def additionalSetting(self):
         self.model.setNNmodel()
         self.opti.subject_to(self.model.nn_func(self.X[-1], self.params.alpha) >= 0.)
+        nq = self.model.nq
+        nn_dofs = self.params.nn_dofs
+        if nq > nn_dofs:
+            x_middle = (self.model.x_min[nn_dofs:nq] \
+                        + self.model.x_max[nn_dofs:nq]) / 2
+            self.opti.subject_to(self.X[-1][nn_dofs:nq] == x_middle)
+            self.opti.subject_to(self.X[-1][nq + nn_dofs:] == 0.)
 
 
 class SoftTerminalOCP(NaiveOCP):
-    def __init__(self, model, obstacles=None):
-        super().__init__(model, obstacles)
+    def __init__(self, model, obstacles=None, capsules=None, capsule_pairs=None):
+        super().__init__(model, obstacles, capsules, capsule_pairs)
 
     def additionalSetting(self):
         s_N = self.opti.variable(1)
@@ -233,11 +230,22 @@ class SoftTerminalOCP(NaiveOCP):
             self.opti.bounded(0., s_N, 1e6)
         )
         self.cost += self.params.ws_t * s_N
+        nq = self.model.nq
+        nn_dofs = self.params.nn_dofs
+        if nq > nn_dofs:
+            s_bound = self.opti.variable(nq - nn_dofs)
+            x_middle = (self.model.x_min[nn_dofs:nq] \
+                        + self.model.x_max[nn_dofs:nq]) / 2
+            self.opti.subject_to(self.X[-1][nn_dofs:nq] + s_bound == x_middle)
+            self.opti.subject_to(
+                self.opti.bounded(-1 * np.ones(nq - nn_dofs), s_bound, 1 * np.ones(nq - nn_dofs))
+            )
+            self.opti.subject_to(self.X[-1][nq + nn_dofs:] == 0.)
 
 
 class SafeAbortOCP(NaiveOCP):
-    def __init__(self, model, obstacles=None):
-        super().__init__(model, obstacles)
+    def __init__(self, model, obstacles=None, capsules=None, capsule_pairs=None):
+        super().__init__(model, obstacles, capsules, capsule_pairs)
 
     def additionalSetting(self):
         cost = 0

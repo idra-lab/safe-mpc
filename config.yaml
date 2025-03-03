@@ -3,8 +3,9 @@ n_steps: 800              # number of time steps in each test
 cpu_num: 24
 
 N: 45                     # horizon length --> 45 for z1 
-dt: 5e-3                  # time step
+dt: 1e-2                  # time step
 alpha: 10.                # safety margin 
+nn_dofs: 4                # number of DoFs considered in the NN
 
 solver_mode: 'BALANCE'    # HPIPM mode, can be --> 'BALANCE', 'ROBUST', 'SPEED', 'SPEED_ABS'
 nlp_max_iter: 500

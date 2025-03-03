@@ -1,6 +1,6 @@
 import numpy as np
 import scipy.linalg as lin
-from .abstract import AbstractController
+from .abstract import AbstractController, AdamModel
 from casadi import Function, norm_2
 
 
@@ -111,20 +111,26 @@ class RecedingController(STWAController):
     def step(self, x):
         # Terminal constraint
         self.ocp_solver.cost_set(self.N, "zl", self.params.ws_t * np.ones((1,)))
-        # Receding constraint
-        # lh = self.ocp.constraints.lh
-        # lh_rec = np.copy(lh)
-        # lh[-1] = -1e6
-        # if self.r < self.N:
-        #     self.ocp_solver.constraints_set(self.r, "lh", lh_rec)
-        # self.ocp_solver.cost_set(self.r, "zl", self.params.ws_r * np.ones((1,)))
         self.ocp_solver.set(self.r, "p", np.hstack([self.model.ee_ref, [self.params.alpha, 1.]]))
+
+        if self.model.nq > self.params.nn_dofs:
+            lbx_r, ubx_r = np.copy(self.ocp.constraints.lbx), np.copy(self.ocp.constraints.ubx)
+
+            lbx_r[self.params.nn_dofs:self.model.nq] = self.x_middle
+            ubx_r[self.params.nn_dofs:self.model.nq] = self.x_middle
+
+            lbx_r[self.model.nq + self.params.nn_dofs] = self.x_zerovel
+            ubx_r[self.model.nq + self.params.nn_dofs] = self.x_zerovel
+
+            self.ocp_solver.constraints_set(self.r, "lbx", lbx_r)
+            self.ocp_solver.constraints_set(self.r, "ubx", ubx_r)
+
         for i in range(self.N):
             if i != self.r:
-                # No constraints on other running states
-                # self.ocp_solver.cost_set(i, "zl", np.zeros((1,)))
-                # self.ocp_solver.constraints_set(i, "lh", lh)
                 self.ocp_solver.set(i, "p", np.hstack([self.model.ee_ref, [self.params.alpha, -1.]]))
+                if self.model.nq > self.params.nn_dofs:
+                    self.ocp_solver.constraints_set(i, "lbx", self.model.x_min)
+                    self.ocp_solver.constraints_set(i, "ubx", self.model.x_max)
         # Solve the OCP
         status = self.solve(x)
 

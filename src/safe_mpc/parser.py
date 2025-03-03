@@ -53,7 +53,8 @@ class Parameters:
         self.N = int(parameters['N'])
         self.dt = float(parameters['dt'])
         self.alpha = float(parameters['alpha'])
-        self.act = 'tanh' if urdf_name == 'z1' else 'relu'
+        self.nn_dofs = int(parameters['nn_dofs'])
+        self.act = 'gelu' 
 
         self.solver_type = 'SQP_RTI' if rti else 'SQP'
         self.solver_mode = parameters['solver_mode']
