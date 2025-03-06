@@ -124,16 +124,8 @@ class AdamModel:
         self.obs_string = self.params.obs_string
         self.joint_names = joint_names
 
-        # Analytic or network set
-        if self.params.use_net == True:
-            self.safe_set = NetSafeSet(self.params,self.x,self.p,self.nq)
-            self.net_name = '_net'
-        elif self.params.use_net == False: 
-            self.safe_set = AnalyticSafeSet(self.params,self.x,self.p,self.x_min,self.x_max,self.nq,self.t_glob,self.jac)
-            self.net_name = 'analytic_set'
-        else:
-            self.safe_set=None
-            self.net_name = ''
+        self.create_safe_set()
+        
         # Capsules end-points forward kinematics
         n_cap=0
         for capsule in self.params.robot_capsules:
@@ -180,6 +172,18 @@ class AdamModel:
 
     def jointToEE(self, x):
         return np.array(self.ee_fun(x))
+
+    def create_safe_set(self):
+        # Analytic or network set
+        if self.params.use_net == True:
+            self.safe_set = NetSafeSet(self)
+            self.net_name = '_net'
+        elif self.params.use_net == False: 
+            self.safe_set = AnalyticSafeSet(self)
+            self.net_name = 'analytic_set'
+        else:
+            self.safe_set=None
+            self.net_name = ''
 
     def checkStateConstraints(self, x):
         return np.all(np.logical_and(x >= self.x_min - self.params.tol_x, 
