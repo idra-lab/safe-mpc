@@ -2,7 +2,7 @@ import re
 import numpy as np
 import scipy.linalg as lin
 from casadi import Function, norm_2
-from acados_template import AcadosModel, AcadosOcp, AcadosOcpSolver
+from acados_template import AcadosOcp, AcadosOcpSolver
 from copy import deepcopy
 import casadi as cs
 import sympy as sym
@@ -23,16 +23,16 @@ class AbstractController:
         self.ocp.model = self.model.amodel
 
         # Cost
-        self.Q = self.model.params.Q
+        self.Q = self.model.params.Q if not(self.model.params.track_traj) else 5e2 * np.eye(3)
         self.R = self.model.params.R * np.eye(self.model.nu) 
 
         self.ocp.cost.cost_type = 'EXTERNAL'
         self.ocp.cost.cost_type_e = 'EXTERNAL'
 
         t_glob = self.model.t_glob
-        delta = t_glob - self.model.p[:3]
+        delta = t_glob - self.model.p[:3]    #self.model.ee_ref
         track_ee = delta.T @ self.Q @ delta 
-        self.ocp.model.cost_expr_ext_cost = track_ee + self.model.u.T @ self.R @ self.model.u
+        self.ocp.model.cost_expr_ext_cost = track_ee + self.model.u.T @ self.R @ self.model.u if not(self.model.params.track_traj) else track_ee
         self.ocp.model.cost_expr_ext_cost_e = track_ee
         self.ocp.parameter_values = np.hstack([self.model.ee_ref, [self.model.params.alpha, 1.]])
 
@@ -92,9 +92,6 @@ class AbstractController:
         self.ocp.solver_options.globalization = self.model.params.globalization
         self.ocp.solver_options.levenberg_marquardt = self.model.params.levenberg_marquardt
         self.ocp.solver_options.ext_fun_compile_flags = self.model.params.ext_flag
-        # self.ocp.solver_options.tol = 1e-4
-        # self.ocp.solver_options.qp_tol = 1e-4
-        # self.ocp.solver_options.regularize_method = 'PROJECT'   # Maybe is a good idea if exact hessian is not used
 
         gen_name = self.model.params.GEN_DIR + 'ocp_' + self.ocp_name + '_' + self.model.amodel.name
         self.ocp.code_export_directory = gen_name
@@ -116,10 +113,12 @@ class AbstractController:
                             'time_glob', 'time_reg', 'time_tot']
         self.last_status = 4
 
+        self.reset_controller()
+
         self.track_traj = self.model.params.track_traj
         if self.track_traj:
-            self.a_shape_8 = self.params.a_shape_8
-            self.offset_traj = np.array(self.params.offset_traj).reshape(3,1)
+            self.a_shape_8 = self.model.params.dim_shape_8
+            self.offset_traj = np.array(self.model.params.offset_traj).reshape(3,1)
             a_sym,t_sym = sym.symbols('a t')
             x_sym = (a_sym*sym.cos(t_sym))/(1+sym.sin(t_sym)**2)
             y_sym = (a_sym*sym.cos(t_sym)*sym.sin(t_sym))/(1+sym.sin(t_sym)**2)
@@ -131,50 +130,49 @@ class AbstractController:
             self.dy_fun = sym.lambdify(t_sym,dy.subs({a_sym:self.a_shape_8})) 
 
             rot_mat__traj_x = np.array([[1,0,0],
-                                        [0,np.cos(self.params.theta_rot_traj[0]),-np.sin(self.params.theta_rot_traj[0])],
-                                        [0,np.sin(self.params.theta_rot_traj[0]),np.cos(self.params.theta_rot_traj[0])]])
+                                        [0,np.cos(self.model.params.theta_rot_traj[0]),-np.sin(self.model.params.theta_rot_traj[0])],
+                                        [0,np.sin(self.model.params.theta_rot_traj[0]),np.cos(self.model.params.theta_rot_traj[0])]])
 
-            rot_mat__traj_y = np.array([[np.cos(self.params.theta_rot_traj[1]),0,np.sin(self.params.theta_rot_traj[1])],
+            rot_mat__traj_y = np.array([[np.cos(self.model.params.theta_rot_traj[1]),0,np.sin(self.model.params.theta_rot_traj[1])],
                                         [0,1,0],
-                                        [-np.sin(self.params.theta_rot_traj[1]),0,np.cos(self.params.theta_rot_traj[1])]])
+                                        [-np.sin(self.model.params.theta_rot_traj[1]),0,np.cos(self.model.params.theta_rot_traj[1])]])
 
-            rot_mat__traj_z = np.array([[np.cos(self.params.theta_rot_traj[2]),-np.sin(self.params.theta_rot_traj[2]),0],
-                                        [np.sin(self.params.theta_rot_traj[2]), np.cos(self.params.theta_rot_traj[2]),0],
+            rot_mat__traj_z = np.array([[np.cos(self.model.params.theta_rot_traj[2]),-np.sin(self.model.params.theta_rot_traj[2]),0],
+                                        [np.sin(self.model.params.theta_rot_traj[2]), np.cos(self.model.params.theta_rot_traj[2]),0],
                                         [0,0,1]])
             self.rot_mat__traj = rot_mat__traj_x@rot_mat__traj_y@rot_mat__traj_z
 
-            self.traj_to_track = np.zeros((3,self.N))
+            self.traj_to_track = np.zeros((3,self.N+1))
             self.theta_traj = 0
-            self.vel_max_traj = self.params.vel_max_traj
-            self.acc_traj = self.vel_max_traj/(self.params.n_steps*0.9)
-            self.vel_traj = self.vel_max_traj if self.params.vel_const else 0
+            self.vel_max_traj = self.model.params.vel_max_traj
+            self.acc_traj = self.vel_max_traj/(self.model.params.n_steps*0.9)
+            self.vel_traj = self.vel_max_traj if self.model.params.vel_const else 0
 
             self.generate_trajectory(self.vel_traj)
 
     def generate_trajectory(self,velocity):
-        traj = np.zeros((3,self.N))
+        traj = np.zeros((3,self.N+1))
         theta = self.theta_traj
         self.theta_traj = self.theta_next_from_vel(self.theta_traj,velocity)
-        for i in range(self.N):
+        for i in range(self.N+1):
             traj[:,i] = self.get_point_from_theta(theta) 
             theta = self.theta_next_from_vel(theta,velocity)
         self.traj_to_track = self.rot_mat__traj @ traj + self.offset_traj
-        if not(self.params.vel_const) and (self.vel_traj < self.vel_max_traj):
+        if not(self.model.params.vel_const) and (self.vel_traj < self.vel_max_traj):
             self.vel_traj += self.acc_traj
 
     def get_point_from_theta(self,theta):
         return np.array([(self.a_shape_8*np.cos(theta))/(1+np.sin(theta)**2),(self.a_shape_8*np.cos(theta)*np.sin(theta))/(1+np.sin(theta)**2),0] )
     
     def theta_next_from_vel(self,theta,vel_set):
-        return theta+(vel_set/(np.sqrt(self.dx_fun(theta)**2+self.dy_fun(theta)**2)))*self.params.dt
-
+        return theta+(vel_set/(np.sqrt(self.dx_fun(theta)**2+self.dy_fun(theta)**2)))*self.model.params.dt
 
     def additionalSetting(self):
         pass
 
     def terminalSetConstraint(self, soft=True):
         # Get the actual number of nl_constraints --> will be the index for the soft constraint
-        num_nl_e = len(self.nl_con_e)
+        num_nl_e = np.sum([c[0].shape[0] for c in self.nl_con_e])
         safe_set_constraints = self.model.safe_set.get_constraints()
         bounds = self.model.safe_set.get_bounds()
         constraint_num = 0
@@ -196,7 +194,7 @@ class AbstractController:
 
     def runningSetConstraint(self, soft=True):
         # Suppose that the NN model is already set (same for external model shared lib)
-        num_nl = len(self.nl_con)
+        num_nl = np.sum([c[0].shape[0] for c in self.nl_con])
         safe_set_constraints = self.model.safe_set.get_constraints()
         bounds = self.model.safe_set.get_bounds()
         constraint_num = 0
@@ -230,7 +228,7 @@ class AbstractController:
 
         if self.track_traj:
             for i in range(self.N+1):
-                self.ocp_solver.set(i,'p',np.array([self.traj_to_track[0,i],self.traj_to_track[1,i],self.traj_to_track[2,i],self.params.alpha,1]))
+                self.ocp_solver.set(i,'p',np.array([self.traj_to_track[0,i],self.traj_to_track[1,i],self.traj_to_track[2,i],self.model.params.alpha,self.ocp_solver.get(i,'p')[-1]]))
             self.generate_trajectory(self.vel_traj)
         # Solve the OCP
         status = self.ocp_solver.solve()
@@ -243,9 +241,6 @@ class AbstractController:
 
         self.last_status = status
         return status
-    
-    def solve_settings(self):
-        pass
 
     def provideControl(self):
         """ Save the guess for the next MPC step and return u_opt[0] """
@@ -291,11 +286,10 @@ class AbstractController:
         self.x_temp = np.zeros((self.N + 1, self.model.nx))
         self.u_temp = np.zeros((self.N, self.model.nu))
 
-        # if self.track_traj:
-        #     self.generate_trajectory(self.vel_traj)
-        #     self.theta_traj=0
-        #     self.vel_traj = 0 if not(self.model.params.vel_const) else self.vel_max_traj
-
+        if self.track_traj:
+            self.generate_trajectory(self.vel_traj)
+            self.theta_traj=0
+            self.vel_traj = 0 if not(self.model.params.vel_const) else self.vel_max_traj
 
     def safeGuess(self, x, u, n_safe):
         for i in range(n_safe):
@@ -314,6 +308,10 @@ class AbstractController:
             self.u_guess = np.copy(u_sim)
             return True
         return False
+    
+    def reset_controller(self):
+        self.fails = 0
+        self.model.params.use_net = None
 
 class NaiveController(AbstractController):
     def __init__(self, model):
@@ -368,6 +366,10 @@ class STController(NaiveController):
     def additionalSetting(self):
         self.terminalSetConstraint()
 
+    def reset_controller(self):
+        self.fails = 0
+        self.r = self.N
+        
 
 class STWAController(STController):
     def __init__(self, model):
@@ -383,7 +385,7 @@ class STWAController(STController):
     def step(self, x):
         status = self.solve(x)
         if status == 0 and self.model.checkStateConstraints(self.x_temp) and \
-                np.all([self.checkCollision(x) for x in self.x_temp]):
+                np.all([self.model.checkCollision(x) for x in self.x_temp]):
             self.fails = 0
         else:
             if self.fails == 0:
@@ -422,18 +424,16 @@ class RecedingController(STWAController):
     def step(self, x):
         # Terminal constraint
         self.ocp_solver.cost_set(self.N, self.model.safe_set.constraint_bound, self.model.params.ws_t * np.ones((self.zl_e.size,)))
+        self.ocp_solver.set(self.N, "p", np.hstack([self.model.ee_ref, [self.model.params.alpha, 1.]]))
+        
         # Receding constraint
-        # lh = self.ocp.constraints.lh
-        # lh_rec = np.copy(lh)
-        # lh[-1] = -1e6
-        # if self.r < self.N:
-        #     self.ocp_solver.constraints_set(self.r, "lh", lh_rec)
-        # self.ocp_solver.cost_set(self.r, "zl", self.model.params.ws_r * np.ones((1,)))
-        self.ocp_solver.set(self.r, "p", np.hstack([self.model.ee_ref, [self.model.params.alpha, 1.]]))
-        for i in range(self.N):
+        if self.r < self.N:
+            self.ocp_solver.cost_set(self.r, self.model.safe_set.constraint_bound, self.model.params.ws_r * np.ones((self.zl.size,)))
+            self.ocp_solver.set(self.r, "p", np.hstack([self.model.ee_ref, [self.model.params.alpha, 1.]]))
+        for i in range(1,self.N):
             if i != self.r:
                 # No constraints on other running states
-                # self.ocp_solver.cost_set(i, "zl", np.zeros((1,)))
+                self.ocp_solver.cost_set(i,self.model.safe_set.constraint_bound, np.zeros((self.zl.size,)))
                 # self.ocp_solver.constraints_set(i, "lh", lh)
                 self.ocp_solver.set(i, "p", np.hstack([self.model.ee_ref, [self.model.params.alpha, -1.]]))
         # Solve the OCP
@@ -520,40 +520,41 @@ class ParallelController(RecedingController):
     def __init__(self, model):
         super().__init__(model)
         self.r = self.N
-        #self.core_solution=0
         self.constraints = np.linspace(1,self.N,self.N).round().astype(int).tolist()
-        #self.constraints = [self.r,self.N]
-        #self.min_negative_jump = -0
-        print(f'use net? {self.use_net}')
+        self.ocp_solver.set(self.N, "p", np.hstack([self.model.ee_ref, [self.model.params.alpha, 1.]]))
+
+    def additionalSetting(self):
+        # Terminal constraint before, since it construct the nn model
+        self.terminalSetConstraint(soft=False)
+        self.runningSetConstraint(soft=False)
 
     def constrain_n(self,n_constr):
-        self.ocp_solver.cost_set(n_constr, self.model.safe_set.constraint_bound , self.params.ws_r * np.ones((len(self.idxhs))))
+        self.ocp_solver.cost_set(n_constr, self.model.safe_set.constraint_bound , self.model.params.ws_r * np.ones((self.zl.size,)))
+        self.ocp_solver.set(n_constr, "p", np.hstack([self.model.ee_ref, [self.model.params.alpha, 1.]]))
         for i in range(1,self.N+1):
             if i != n_constr:
                 # No constraints on other running states
-                self.ocp_solver.cost_set(i, self.model.safe_set.constraint_bound , np.zeros((len(self.idxhs))))
+                self.ocp_solver.cost_set(i, self.model.safe_set.constraint_bound , np.ones((self.zl.size,)))
+                self.ocp_solver.set(i, "p", np.hstack([self.model.ee_ref, [self.model.params.alpha, -1.]]))
 
     def check_safe_n(self):
         r=0
         for i in range(self.r, self.N + 1):
-            if self.checkSafe(self.x_temp[i]):
+            if self.model.checkSafeConstraints(self.x_temp[i]):
                 r = i
         return r
 
     def sing_step(self, x, n_constr):
+        success=False
         constr_ver = 0
         self.constrain_n(n_constr)
         # Solve the OCP
         status = self.solve(x)
         checked_r = self.check_safe_n()
         if (status==0) and \
-             np.all([self.checkCollision(x) for x in self.x_temp]):
+             np.all([self.model.checkCollision(x) for x in self.x_temp]):
         
             constr_ver = checked_r if checked_r >= self.r else self.r
-            #n_step_safe = max(checked_r,constr_ver)
-            # safe, x_safe = self.simulator.checkSafeIntegrate([x],self.u_temp,n_step_safe)
-            # if safe:
-            #success = True
 
             if (constr_ver-self.r>=0) and\
                 self.model.checkStateConstraints(self.x_temp):
@@ -571,10 +572,11 @@ class ParallelController(RecedingController):
                 tmp_u = np.copy(self.u_temp)
                 if result==self.N:
                     break
-        if node_success >= self.r:
+        if node_success > 1:
             #print(f'Node success:{node_success}')
             #self.core_solution = core
             #self.step_old_solution = 0
+            #print(f'rrrrrrrr:{self.r}')
             self.r = node_success
             self.x_temp = tmp_x
             self.u_temp = tmp_u
@@ -588,9 +590,8 @@ class ParallelController(RecedingController):
                 self.r = self.N
                 print("NOT SOLVED")
                 #_,self.x_viable = self.simulator.checkSafeIntegrate([x],self.u_guess,self.r)
-                #print(self.x_viable)
-                if self.use_net:
-                    print(f'is x viable:{self.model.nn_func(self.x_viable,self.model.params.alpha)}')
+                if self.model.params.use_net:
+                    print(f'is x viable:{self.model.safe_set.nn_func(self.x_viable,self.model.params.alpha)}')
                 return self.u_guess[0], True
         self.r -= 1
 
