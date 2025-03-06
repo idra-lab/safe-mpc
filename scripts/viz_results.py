@@ -1,38 +1,91 @@
 import pickle
 import time
 import numpy as np
-from safe_mpc.parser import Parameters, parse_args
-from safe_mpc.utils import obstacles, ee_ref, RobotVisualizer, capsules, capsule_pairs
-from safe_mpc.abstract import AdamModel
-from safe_mpc.controller import NaiveController
+from safe_mpc.parser import Parameters
+from safe_mpc.utils import RobotVisualizer
+from safe_mpc.env_model import AdamModel
+from safe_mpc.controller import NaiveController, AbstractController, RecedingController
+import meshcat
 
+def get_x_from_theta(theta,a):
+    return (a*np.cos(theta))/(1+np.sin(theta)**2)
+def get_y_from_theta(theta,a):
+    return (a*np.cos(theta)*np.sin(theta))/(1+np.sin(theta)**2)
 
-args = parse_args()
-nq = args['dofs']
-cont_name = args['controller']
-alpha = args['alpha']
-horizon = args['horizon']
 params = Parameters('z1', True)
-model = AdamModel(params, nq)
-model.ee_ref = ee_ref
-robot = NaiveController(model, obstacles, capsules, capsule_pairs)
-rviz = RobotVisualizer(params, nq)
-rviz.setTarget(ee_ref)
-if params.obs_flag:
-    rviz.addObstacles(obstacles)
+params.build = False
+model = AdamModel(params)
+robot = RecedingController(model)
+robot.track_traj = True
+rviz = RobotVisualizer(params, 4)
+if not(robot.track_traj):
+    rviz.setTarget(params.ee_ref)
+# rviz.setInitialBox()
+if robot.model.params.obstacles != None:
+    rviz.addObstacles(robot.model.params.obstacles)
 
-data = pickle.load(open(f'{params.DATA_DIR}z1_{cont_name}_{horizon}hor_{int(alpha)}sm_mpc.pkl', 'rb'))
+theta = np.linspace(0,2*np.pi,100)
+
+theta_rot = params.theta_rot_traj
+rot_mat_x = np.array([[1,0,0],
+                    [0,np.cos(theta_rot[0]),-np.sin(theta_rot[0])],
+                    [0,np.sin(theta_rot[0]),np.cos(theta_rot[0])]])
+
+rot_mat_y = np.array([[np.cos(theta_rot[1]),0,np.sin(theta_rot[1])],
+                    [0,1,0],
+                    [-np.sin(theta_rot[1]),0,np.cos(theta_rot[1])]])
+
+rot_mat_z = np.array([[np.cos(theta_rot[2]),-np.sin(theta_rot[2]),0],
+                    [np.sin(theta_rot[2]), np.cos(theta_rot[2]),0],
+                    [0,0,1]])
+rot_mat = rot_mat_x@rot_mat_y@rot_mat_z
+
+
+
+x= get_x_from_theta(theta,params.dim_shape_8)
+y= get_y_from_theta(theta,params.dim_shape_8)
+z=np.zeros(x.shape[0])
+
+x_trj = np.vstack((x,y,z))
+x_trj=rot_mat@x_trj + params.offset_traj.reshape((3,1))
+
+data = pickle.load(open(f'{params.DATA_DIR}z1_naive_use_netNone_45hor_10traj_trackmpc.pkl', 'rb'))
+
 x = data['x']
 
-for capsule in robot.capsules:
-    rviz.init_capsule(capsule)
-
-time.sleep(5)
-for j in range(params.test_num):
+time.sleep(1)
+for j in range(0,params.test_num if not(robot.track_traj) else 1):
     print(f"Trajectory {j + 1}")
-    rviz.display(x[j][0, :nq])
+    rviz.display(x[j][0, :model.nq])
     time.sleep(1)
+    print(robot.track_traj)
+    if robot.track_traj:
+        rviz.addTraj(x_trj)
+        rviz.vizTraj(x_trj)
+    else:
+        rviz.setTarget(params.ee_ref)
+    if robot.model.params.robot_capsules != None:
+            rviz.init_capsule(robot.model.params.robot_capsules)
+    if robot.model.params.obst_capsules != None:
+            rviz.init_capsule(robot.model.params.obst_capsules)
+    
+    
+
     for i in range(params.n_steps):
-        # rviz.display(x[j][i, :nq])
-        rviz.displayWithEESphere(x[j][i, :nq], robot.capsules)
+        if np.isnan(x[j][i,0]):
+            print(i)
+            print(x[j][i])
+            break
+        if robot.track_traj:
+            robot.generate_trajectory(robot.vel_traj)
+            if (i%100)==0:
+                print(f'Trajectory velocity:{robot.vel_traj} [m/s]')
+        if params.use_capsules:
+            rviz.displayWithEESphere(x[j][i, :model.nq],robot.model.params.robot_capsules+robot.model.params.obst_capsules)
+        else:
+             T_ee = np.eye(4)
+             T_ee[:3,3] = np.array(robot.model.ee_fun_noisy(x[j][i])).reshape(3)
+             rviz.displayWithEE(x[j][i, :model.nq],T_ee)
+        #rviz.display(x[j][i, :model.nq])
+
         time.sleep(params.dt)
