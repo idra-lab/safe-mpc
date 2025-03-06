@@ -1,6 +1,6 @@
 import pickle
 from safe_mpc.parser import Parameters, parse_args
-from safe_mpc.abstract import AdamModel
+from safe_mpc.env_model import AdamModel
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 
