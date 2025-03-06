@@ -21,13 +21,14 @@ def parse_args():
                         help='Horizon of the optimal control problem')
     parser.add_argument('-a', '--activation', type=str, default='gelu',
                         help='Activation function for the neural network')
+    parser.add_argument('--back_hor',type=int,default=45,help='Horizon of the backup controller')
     return vars(parser.parse_args())
 
 def align_vectors(a, b):
     b = b / np.linalg.norm(b) # normalize a
     a = a / np.linalg.norm(a) # normalize b
     v = np.cross(a, b)
-    # s = np.linalg.norm(v)
+
     c = np.dot(a, b)
     if np.isclose(c, -1.0):
         return -np.eye(3, dtype=np.float64)
@@ -71,12 +72,13 @@ class Parameters:
         self.build = False
         
         self.N = int(parameters['N'])
+        self.back_hor = int(parameters['back_hor'])
         self.dt = float(parameters['dt'])
         self.alpha = float(parameters['alpha'])
         self.act = 'gelu' if urdf_name == 'z1' else 'relu'
         self.use_net = bool(parameters['use_net'])
         self.nq = int(parameters['n_dofs'])
-        self.n_dof_net = int(parameters['n_dof_net'])
+        self.n_dof_safe_set = int(parameters['n_dof_safe_set'])
         self.ee_ref = np.array(parameters['ee_ref'])
 
         self.solver_type = 'SQP_RTI' if rti else 'SQP'
@@ -132,12 +134,14 @@ class Parameters:
         # capsules
         # robot capsules
         self.robot_capsules = []
-        for capsule in parameters['robot_capsules']:
-            self.robot_capsules.append(self.create_moving_capsule(capsule))
+        if parameters['robot_capsules'] != None:
+            for capsule in parameters['robot_capsules']:
+                self.robot_capsules.append(self.create_moving_capsule(capsule))
         # fixed capsule
         self.obst_capsules = []
-        for capsule in parameters['obstacles_capsules']:
-            self.obst_capsules.append(self.create_fixed_capsule(capsule))
+        if parameters['obstacles_capsules'] != None:
+            for capsule in parameters['obstacles_capsules']:
+                self.obst_capsules.append(self.create_fixed_capsule(capsule))
                     
         self.collisions_pairs = []
         if self.use_capsules:
@@ -163,6 +167,11 @@ class Parameters:
             self.theta_rot_traj = np.array(parameters['theta_rot_traj'])
             self.vel_max_traj = float(parameters['vel_max_traj'])
             self.vel_const = bool(parameters['vel_const'])
+
+        self.noise_mass = float(parameters['noise_mass'])
+        self.noise_inertia = float(parameters['noise_inertia'])
+        self.noise_cm = float(parameters['noise_cm'])
+
 
     def create_moving_capsule(self,capsule):
         """
