@@ -20,10 +20,10 @@ params = Parameters(model_name)
 def get_ocp(ocp_name, model) -> NaiveOCP:
     ocps = { 'naive': NaiveOCP,
              'zerovel': TerminalZeroVelOCP,
-             'st': SoftTerminalOCP,
-             'htwa': SoftTerminalOCP,
-             'receding': SoftTerminalOCP, 
-             'real': SoftTerminalOCP}
+             'st': HardTerminalOCP,
+             'htwa': HardTerminalOCP,
+             'receding': HardTerminalOCP, 
+             'real': HardTerminalOCP}
     if ocp_name in ocps:
         return ocps[ocp_name](model)
     else:
@@ -51,6 +51,7 @@ def get_controller(cont_name, model) -> AbstractController:
                     'st': STController,
                     'htwa': HTWAController,
                     'receding': RecedingController,
+                    'parallel': ParallelController,
                     'real': RealReceding }
     if cont_name in controllers:
         return controllers[cont_name](model)
@@ -77,11 +78,11 @@ class RobotVisualizer:
         # self.viz.setCameraPosition(np.array([1., 1., 1.]))
 
         # Set the end-effector target
-        ee_radius = 0.075   
+        ee_radius = params.ee_radius   
         shpere = meshcat.geometry.Sphere(ee_radius)
         self.viz.viewer['world/robot/target'].set_object(shpere)
         self.viz.viewer['world/robot/target'].set_property('color', [0, 1, 0, 0.4])
-        self.viz.viewer['world/robot/target'].set_property('visible', True)
+        self.viz.viewer['world/robot/target'].set_property('visible', False)
         T_target = np.eye(4)
         self.viz.viewer['world/robot/target'].set_transform(T_target)
         # EE
@@ -191,6 +192,23 @@ class RobotVisualizer:
         q = np.hstack((q,np.zeros(q.shape[0])))
         for capsule in capsules:
             self.render_capsule(q,capsule)
+
+    def addTraj(self,points):
+        for i in range(points.shape[1]):
+            sphere = meshcat.geometry.Sphere(0.01)
+            self.viz.viewer['world/obstacle/' + f'traj_point{i}'].set_object(sphere)
+            self.viz.viewer['world/obstacle/' + f'traj_point{i}'].set_property('color', [1,0,0,1])
+            self.viz.viewer['world/obstacle/' + f'traj_point{i}'].set_property('visible', True)
+            T_obs = np.eye(4)
+            T_obs[:3, 3] = points[:,i]
+            self.viz.viewer['world/obstacle/' + f'traj_point{i}'].set_transform(T_obs)
+
+    def vizTraj(self,points): 
+        T_obs = np.eye(4)
+        for i in range(points.shape[1]):
+            self.viz.viewer['world/obstacle/' + f'traj_point{i}'].set_property('visible', True)
+            T_obs[:3, 3] = points[:,i]
+            self.viz.viewer['world/obstacle/' + f'traj_point{i}'].set_transform(T_obs)
 
     def moveCamera(self, cam_pos):
         self.viz.setCameraPosition(cam_pos)
