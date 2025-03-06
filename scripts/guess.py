@@ -3,7 +3,7 @@ import pickle
 import numpy as np
 from scipy.stats import qmc
 from safe_mpc.parser import Parameters, parse_args
-from safe_mpc.abstract import AdamModel
+from safe_mpc.env_model import AdamModel
 from safe_mpc.utils import get_ocp, RobotVisualizer
 
 
@@ -67,11 +67,16 @@ while succ < num_ics:
 print(f'Number of failed initializations: {fails}')
 print(f'Number of skipped initial conditions: {skip_ics}')
 
+traj__track = 'traj_track' if ocp.model.params.track_traj else "" 
+
 x_guess = np.asarray(x_guess)
 u_guess = np.asarray(u_guess)
 # with open(f'{params.DATA_DIR}{model_name}_{ocp_name}_guess.pkl', 'wb') as f:
 with open(f'{params.DATA_DIR}{model_name}_{ocp_name}_{params.N}hor_{int(params.alpha)}sm_guess.pkl', 'wb') as f:
     pickle.dump({'xg': x_guess, 'ug': u_guess}, f)
+
+with open(f'{params.DATA_DIR}{model_name}_{ocp_name}_{args["horizon"]}hor_{int(params.alpha)}sm_use_net{ocp.model.params.use_net}_{traj__track}_guess.pkl', 'wb') as f:
+                pickle.dump({'xg': np.asarray(x_guess), 'ug': np.asarray(u_guess)}, f)
 
 elapsed_time = time.time() - start_time
 hours = int(elapsed_time // 3600)
