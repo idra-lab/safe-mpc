@@ -55,15 +55,15 @@ class NetSafeSet(AbstractSafeSet):
         act_fun =nn.GELU(approximate='tanh')
 
         model = NeuralNetwork(8, 256, 1, act_fun)
-        nn_data = torch.load(f'{self.params.NN_DIR}4dof_{act}{self.params.obs_string}.pt',
+        nn_data = torch.load(f'{self.params.NN_DIR}4dof_gelu_obs.pt',
                              map_location=torch.device('cpu'))
         model.load_state_dict(nn_data['model'])
 
         x_cp = deepcopy(x)
         x_cp[n_dof] += self.params.eps
-        vel_norm = cs.norm_2(x_cp[n_dof:n_dof + self.params.n_dof_net])
-        pos = (x_cp[:self.params.n_dof_net] - nn_data['mean']) / nn_data['std']
-        vel_dir = x_cp[n_dof:n_dof + self.params.n_dof_net] / vel_norm
+        vel_norm = cs.norm_2(x_cp[n_dof:n_dof + self.params.n_dof_safe_set])
+        pos = (x_cp[:self.params.n_dof_safe_set] - nn_data['mean']) / nn_data['std']
+        vel_dir = x_cp[n_dof:n_dof + self.params.n_dof_safe_set] / vel_norm
         state = cs.vertcat(pos, vel_dir)
 
         self.l4c_model = l4c.L4CasADi(model.linear_stack,
@@ -73,6 +73,7 @@ class NetSafeSet(AbstractSafeSet):
         self.nn_model = cs.if_else(p[4] > 0, 
                                 self.l4c_model(state) * (100 - p[3]) / 100 - vel_norm, 
                                 1., True)
+        
         self.constraints.append(self.nn_model)
         
         self.nn_func = cs.Function('nn_func', [x, p], [self.nn_model])
@@ -84,6 +85,7 @@ class NetSafeSet(AbstractSafeSet):
         self.bounds.append([0,1e6])
 
 class AnalyticSafeSet(AbstractSafeSet):
+    # possibilità di aggiungere nymero di gradi safe_set e non necessariamente nq gradi di libertà
     def __init__(self,params,x,p,x_min,x_max,n_dof,ee_fun,jac_ee):
         super().__init__(params)
         self.reg_term = 1e-6 
@@ -98,28 +100,29 @@ class AnalyticSafeSet(AbstractSafeSet):
         # constraints upper bounded
         self.constraint_bound = 'zu'
 
-        self.constraints.append(self.ddq_min_expr())
-        self.bounds.append([-1e6*np.ones(n_dof),np.sqrt(2*self.params.ddq_max[:n_dof])])
-        self.constraints_fun.append(cs.Function('ddq_min',[self.x],[self.constraints[-1]]))
-        self.constraints[-1] = (self.casadi_if_else(self.constraints[-1]))
-
-        self.constraints.append(self.ddq_max_expr())
-        self.bounds.append([-1e6*np.ones(n_dof),np.sqrt(2*self.params.ddq_max[:n_dof])])
-        self.constraints_fun.append(cs.Function('ddq_max',[self.x],[self.constraints[-1]]))
-        self.constraints[-1] = (self.casadi_if_else(self.constraints[-1]))
-
         for i,obs in enumerate(self.params.obstacles):
             if obs['name'] == 'floor':
                 self.constraints.append(self.floor_con(obs))
                 self.bounds.append([-1e6,0])
                 self.constraints_fun.append(cs.Function(f'obs_{i}',[self.x],[self.constraints[-1]]))
-                self.constraints[-1] = (self.casadi_if_else(self.constraints[-1]))
+                self.constraints[-1] = self.casadi_if_else(self.constraints[-1],self.bounds[-1])
 
             elif obs['name'] == 'ball':
                 self.constraints.append(self.ball_con(obs))
                 self.bounds.append([-1e6,0])    
                 self.constraints_fun.append(cs.Function(f'obs_{i}',[self.x],[self.constraints[-1]]))
-                self.constraints[-1] = (self.casadi_if_else(self.constraints[-1]))
+                self.constraints[-1] = self.casadi_if_else(self.constraints[-1],self.bounds[-1])
+
+        self.constraints.append(self.ddq_min_expr())
+        self.bounds.append([-1e6*np.ones(n_dof),np.sqrt(2*self.params.ddq_max[:n_dof])])
+        self.constraints_fun.append(cs.Function('ddq_min',[self.x],[self.constraints[-1]]))
+        self.constraints[-1] = (self.casadi_if_else(self.constraints[-1],self.bounds[-1]))
+
+        self.constraints.append(self.ddq_max_expr())
+        self.bounds.append([-1e6*np.ones(n_dof),np.sqrt(2*self.params.ddq_max[:n_dof])])
+        self.constraints_fun.append(cs.Function('ddq_max',[self.x],[self.constraints[-1]]))
+        self.constraints[-1] = (self.casadi_if_else(self.constraints[-1],self.bounds[-1]))
+
 
 
 
@@ -143,7 +146,7 @@ class AnalyticSafeSet(AbstractSafeSet):
         ball_expr = cs.dot((self.jac_ee(np.eye(4),self.x[:self.nq])[:3,6:]@self.x[self.nq:]),dist_vec_ball/cs.norm_2(dist_vec_ball)) - dx_max_ball  #-cs.fabs(cs.dot(dx_max_ball,dist_vec_ball))
         return ball_expr
     
-    def casadi_if_else(self,expression):
+    def casadi_if_else(self,expression,bounds):
         return(cs.if_else(self.p[4] > 0, 
                           expression, 
-                          cs.MX.ones(expression.shape), True))
+                          (bounds[0] + bounds[1])/2, True))
