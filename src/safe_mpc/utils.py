@@ -20,9 +20,10 @@ params = Parameters(model_name)
 def get_ocp(ocp_name, model) -> NaiveOCP:
     ocps = { 'naive': NaiveOCP,
              'zerovel': TerminalZeroVelOCP,
-             'st': HardTerminalOCP,
+             'st': SoftTerminalOCP,
              'htwa': HardTerminalOCP,
-             'receding': HardTerminalOCP, 
+             'receding': HardTerminalOCP,
+             'parallel': HardTerminalOCP, 
              'real': HardTerminalOCP}
     if ocp_name in ocps:
         return ocps[ocp_name](model)
