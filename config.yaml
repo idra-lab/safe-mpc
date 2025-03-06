@@ -1,4 +1,4 @@
-test_num: 100             # number of tests
+test_num: 500             # number of tests
 n_steps: 800              # number of time steps in each test
 cpu_num: 24
 
@@ -43,14 +43,14 @@ ws_r: 1e4
 obs_flag: true           # activation of Cartesian constraints
 obs_string: '_obs'
 abort_flag: true         # activation of abort mechanism for receding MPC
-use_net: true             # use the network safe set if true, otherwise analytic safe set
+use_net: false             # use the network safe set if true, otherwise analytic safe set
 
 frame_ee: 'gripperMover'
 ee_ref: [0.6, 0.28, 0.078]
 ee_radius: 0.05
 
-ddq_max: [0.1       , 1.        , 1.66666667, 2.33333333, 2.33333333, 2.33333333]
-ddx_max: [0.13333333, 0.13333333, 0.13333333]
+ddq_max: [0.1       , 1.        , 1.666, 2.333, 2.333, 2.333]
+ddx_max: [0.133, 0.133, 0.133]
 
 obstacles:
   - name: 'floor'
@@ -65,16 +65,16 @@ obstacles:
       - [0,0,0,1]
     bounds: [0,1e6] 
 
-  # - name: 'ball'
-  #   type: 'sphere'
-  #   radius: 0.12
-  #   color: [0,1,1,1]
-  #   position: [0.6,0,0.12]
-  #   transform: 
-  #     - [1,0,0,0.6]
-  #     - [0,1,0,0]
-  #     - [0,0,1,0.12]
-  #     - [0,0,0,1]
+  - name: 'ball'
+    type: 'sphere'
+    radius: 0.12
+    color: [0,1,1,1]
+    position: [0.6,0,0.12]
+    transform: 
+      - [1,0,0,0.6]
+      - [0,1,0,0]
+      - [0,0,1,0.12]
+      - [0,0,0,1]
 
 use_capsules: true
 
@@ -103,7 +103,7 @@ robot_capsules:
     radius: 0.05
     length: 0.16
     spatial_offset: [0.06,0,0.05]
-    rotation_offset: [0,-0.06283185307179587,0]
+    rotation_offset: [0,-0.06283,0]
     color: [0,0,1,0.3]
 
 obstacles_capsules:
@@ -127,10 +127,10 @@ obstacles_capsules:
 
 collision_pairs:
    - ['arm','ee']
-  # - ['ee','ball']
+   - ['ee','ball']
    - ['ee', 'floor']
    - ['forearm','floor']
-  # - ['forearm', 'ball']
+   - ['forearm', 'ball']
    - ['ee','fixed1']
    - ['ee','fixed2']
    - ['ee','fixed3']
@@ -139,14 +139,14 @@ collision_pairs:
    - ['forearm','fixed3']
 
 
-track_traj: false
+track_traj: true
 dim_shape_8: 0.3
-offset_traj: [0.39, 0.,0.1]
-theta_rot_traj: [0,0,1.5707963267948966]
+offset_traj: [0.37, 0.,0.1]
+theta_rot_traj: [0,0,1.570]
 vel_max_traj: 0.65
 vel_const: false
 n_steps_tracking: 5000
 
-noise_mass: 0
-noise_inertia: 0
-noise_cm: 0
+noise_mass: 0.
+noise_inertia: 0.
+noise_cm: 0.

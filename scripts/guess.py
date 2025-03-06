@@ -58,6 +58,7 @@ while succ < num_ics:
         except:
             sol = opti.debug
             fails += 1
+            print('failed')
             continue
     else:
         print('skipped')

@@ -109,13 +109,15 @@ if not(ocp_with_net.model.params.track_traj):
             time.sleep(5)
             skip_ics += 1
 else:
+    rviz.addTraj(ocp_with_net.traj_to_track)
+    rviz.vizTraj(ocp_with_net.traj_to_track)
+    
     InvKynSolver = InverseKinematicsOCP(model,ocp_with_net.traj_to_track[:,0])
     solver_inv = InvKynSolver.instantiateProblem()
     sol = solver_inv.solve()
     x0 = sol.value(InvKynSolver.X[0])
     rviz.displayWithEESphere(x0[:ocp_with_net.model.nq],ocp_with_net.model.params.robot_capsules+ocp_with_net.model.params.obst_capsules)
-    rviz.display(x0[:ocp_with_net.model.nq])
-    rviz.addTraj(ocp_with_net.traj_to_track)
+    
     u0_g = np.array([np.zeros((model.nu,))]*ocp_with_net.N) 
     x0_g = np.array([x0]*(args['horizon']+1))
     ocp_with_net.setGuess(x0_g,u0_g)

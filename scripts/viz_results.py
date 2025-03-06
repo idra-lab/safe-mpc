@@ -20,7 +20,7 @@ robot.track_traj = True
 rviz = RobotVisualizer(params, 4)
 if not(robot.track_traj):
     rviz.setTarget(params.ee_ref)
-# rviz.setInitialBox()
+
 if robot.model.params.obstacles != None:
     rviz.addObstacles(robot.model.params.obstacles)
 
@@ -49,7 +49,7 @@ z=np.zeros(x.shape[0])
 x_trj = np.vstack((x,y,z))
 x_trj=rot_mat@x_trj + params.offset_traj.reshape((3,1))
 
-data = pickle.load(open(f'{params.DATA_DIR}z1_naive_use_netNone_45hor_10traj_trackmpc.pkl', 'rb'))
+data = pickle.load(open(f'{params.DATA_DIR}z1_receding_use_netTrue_40hor_10sm_traj_trackmpc.pkl', 'rb'))
 
 x = data['x']
 
@@ -67,9 +67,7 @@ for j in range(0,params.test_num if not(robot.track_traj) else 1):
     if robot.model.params.robot_capsules != None:
             rviz.init_capsule(robot.model.params.robot_capsules)
     if robot.model.params.obst_capsules != None:
-            rviz.init_capsule(robot.model.params.obst_capsules)
-    
-    
+            rviz.init_capsule(robot.model.params.obst_capsules)  
 
     for i in range(params.n_steps):
         if np.isnan(x[j][i,0]):
@@ -86,6 +84,5 @@ for j in range(0,params.test_num if not(robot.track_traj) else 1):
              T_ee = np.eye(4)
              T_ee[:3,3] = np.array(robot.model.ee_fun_noisy(x[j][i])).reshape(3)
              rviz.displayWithEE(x[j][i, :model.nq],T_ee)
-        #rviz.display(x[j][i, :model.nq])
 
         time.sleep(params.dt)

@@ -211,7 +211,7 @@ for field, t in zip(controller.time_fields, np.quantile(times, 0.99, axis=0)):
     
 # Save simulation data
  
-with open(f'{params.DATA_DIR}{model_name}_{cont_name}_use_net{controller.model.params.use_net}_{horizon}hor_{int(params.alpha)}{traj__track}mpc.pkl', 'wb') as f:
+with open(f'{params.DATA_DIR}{model_name}_{cont_name}_use_net{controller.model.params.use_net}_{horizon}hor_{int(params.alpha)}sm_{traj__track}mpc.pkl', 'wb') as f:
     pickle.dump({'x': np.asarray(x_sim_list),
                  'u': np.asarray(u_list),
                  'conv_idx' : conv_idx,

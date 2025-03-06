@@ -176,19 +176,6 @@ class InverseKinematicsOCP:
         self.X = X    
         self.cost = cost
 
-    def checkCollision(self, x):
-        if self.obstacles is not None and self.params.obs_flag:
-            t_glob = self.model.jointToEE(x) 
-            for obs in self.obstacles:
-                if obs['name'] == 'floor':
-                    if t_glob[2] + self.params.tol_obs < obs['bounds'][0]:
-                        return False
-                elif obs['name'] == 'ball':
-                    dist_b = np.sum((t_glob.flatten() - obs['position']) ** 2)
-                    if dist_b + self.params.tol_obs < obs['bounds'][0]:
-                        return False
-        return True
-
     def instantiateProblem(self):
         opti = self.opti
         opts = {
