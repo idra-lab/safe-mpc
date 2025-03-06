@@ -42,23 +42,6 @@ class NaiveOCP:
                 # Torque constraints
                 opti.subject_to(opti.bounded(model.tau_min, model.tau_fun(X[k], U[k]), model.tau_max))
 
-            # for pair in self.params.collisions_pairs:
-            #     if pair['type'] == 0:
-            #         dist = self.model.casadi_segment_dist(*pair['elements'][0]['end_points_fk_fun'](X[k]),*pair['elements'][1]['end_points_fk_fun'](X[k]))
-            #         lb = (pair['elements'][0]['radius']+pair['elements'][1]['radius'])**2
-            #         ub = 1e6
-            #         opti.subject_to(opti.bounded(lb, dist, ub))
-            #     elif pair['type'] == 1:
-            #         dist = self.model.ball_segment_dist(*pair['elements'][0]['end_points_fk_fun'](X[k]),pair['elements'][0]['length'],pair['elements'][1]['position'])
-            #         lb = (pair['elements'][1]['radius']+pair['elements'][0]['radius'])**2
-            #         ub = 1e6
-            #         opti.subject_to(opti.bounded(lb, dist, ub))
-            #     elif pair['type'] == 2:
-            #         for point in pair['elements'][0]['end_points_fk_fun'](X[k]):
-            #             lb = pair['elements'][1]['bounds'][0]
-            #             ub = pair['elements'][1]['bounds'][1]
-            #             opti.subject_to(opti.bounded(lb, point[2], ub))
-
             for constr in self.model.collisions_constr_fun:
                 opti.subject_to(opti.bounded(constr[1], constr[0](X[k]), constr[2]))
 
@@ -70,10 +53,14 @@ class NaiveOCP:
         self.cost = cost
         self.dist_b = dist_b
         self.additionalSetting()
+        self.reset_controller()
 
     def additionalSetting(self):
         pass
 
+    def reset_controller(self):
+        self.model.params.use_net = None
+        
     def instantiateProblem(self):
         opti = self.opti
         opts = {
@@ -122,6 +109,9 @@ class HardTerminalOCP(NaiveOCP):
         safe_set_bounds = self.model.safe_set.get_bounds()
         for i,func in enumerate(safe_set_funs):
             self.opti.subject_to(self.opti.bounded(safe_set_bounds[i][0],func(self.X[-1]),safe_set_bounds[i][1]))
+    
+    def reset_controller(self):
+        pass
 
 
 class SoftTerminalOCP(NaiveOCP):
@@ -177,6 +167,9 @@ class InverseKinematicsOCP:
         opti.subject_to(opti.bounded(model.x_min, X[0], model.x_max))
         opti.subject_to(self.model.ee_fun(X[0])==ee_pos)
         opti.subject_to(X[0][self.nq:]==0)
+
+        for constr in self.model.collisions_constr_fun:
+                opti.subject_to(opti.bounded(constr[1], constr[0](X[0]), constr[2]))
 
         opti.minimize(cost)
         self.opti = opti
