@@ -27,7 +27,7 @@ controller = get_controller(cont_name, model)
 param_backup = Parameters(model_name, rti=True)
 param_backup.use_net = None
 param_backup.solver_type = 'SQP_RTI'
-param_backup.build = args['build']#  args['build']
+param_backup.build = False #args['build'] #  args['build']
 model_backup = AdamModel(param_backup)
 safe_ocp = SafeBackupController(model_backup)
 controller.resetHorizon(horizon)
@@ -88,7 +88,7 @@ for i in range(0,x_init.shape[0]):
                             print(f'  NN output at abort with current alpha {int(params.alpha)}: ' 
                                 f'{model.safe_set.nn_func_x(x_viable[-1])}')
                             print(f'  NN output at abort with alpha = 10: '
-                                f'{model.nn_func(x_viable[-1], [0,0,0,10.,0])}')
+                                f'{model.safe_set.nn_func(x_viable[-1], [0,0,0,10.,0])}')
                 # Instead of breaking, solve safe abort problem
                 xg = np.full((safe_ocp.N + 1, model.nx), x_viable[-1])
                 ug = np.zeros((safe_ocp.N, model.nu))
@@ -197,12 +197,12 @@ print(f'Completed task: {len(conv_idx)}'
       f'\nNot converged: {len(unconv_idx)}',
       f'\nNot failed: {not_conv}')
 
-print('Failing reasons:', 
-      f'\n\t x bounds: {counters[0]}',
-      f'\n\t tau bounds: {counters[1]}',
-      f'\n\t Obstacle: {counters[2]}',
-      f'\n\t Safe: {counters[3]}',
-      f'\n\t Solver: {counters[4]}')
+# print('Failing reasons:', 
+#       f'\n\t x bounds: {counters[0]}',
+#       f'\n\t tau bounds: {counters[1]}',
+#       f'\n\t Obstacle: {counters[2]}',
+#       f'\n\t Safe: {counters[3]}',
+#       f'\n\t Solver: {counters[4]}')
 
 print('99% quantile of the computation time:')
 times = np.array(stats)

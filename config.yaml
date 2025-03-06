@@ -43,7 +43,7 @@ ws_r: 1e4
 obs_flag: true           # activation of Cartesian constraints
 obs_string: '_obs'
 abort_flag: true         # activation of abort mechanism for receding MPC
-use_net: true             # use the network safe set if true, otherwise analytic safe set
+use_net: false             # use the network safe set if true, otherwise analytic safe set
 
 frame_ee: 'gripperMover'
 ee_ref: [0.6, 0.28, 0.078]
@@ -139,7 +139,7 @@ collision_pairs:
    - ['forearm','fixed3']
 
 
-track_traj: true
+track_traj: false
 dim_shape_8: 0.3
 offset_traj: [0.37, 0.,0.1]
 theta_rot_traj: [0,0,1.570]
