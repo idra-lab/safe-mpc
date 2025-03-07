@@ -130,6 +130,9 @@ class SoftTerminalOCP(NaiveOCP):
             )
             self.cost += self.params.ws_t * slack_vars[-1]
 
+    def reset_controller(self):
+        pass
+
 class SafeAbortOCP(NaiveOCP):
     def __init__(self, model):
         super().__init__(model)
