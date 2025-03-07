@@ -15,3 +15,4 @@ data/*
 **/_l4c_generated/
 **/__pycache__/
 **/robots/z1_description/urdf/z1_randomized.urdf
+.devcontainer/*
