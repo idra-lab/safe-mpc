@@ -96,6 +96,7 @@ class RobotVisualizer:
         T_target = np.eye(4)
         T_target[:3, 3] = ee_ref
         self.viz.viewer['world/robot/target'].set_transform(T_target)
+        self.viz.viewer['world/robot/target'].set_property('visible', True)
 
     def setInitialBox(self):
         dims = self.params.box_ub - self.params.box_lb

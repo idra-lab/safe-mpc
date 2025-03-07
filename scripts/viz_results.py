@@ -16,7 +16,7 @@ params = Parameters('z1', True)
 params.build = False
 model = AdamModel(params)
 robot = RecedingController(model)
-robot.track_traj = True
+robot.track_traj = False
 rviz = RobotVisualizer(params, 4)
 if not(robot.track_traj):
     rviz.setTarget(params.ee_ref)
@@ -24,32 +24,33 @@ if not(robot.track_traj):
 if robot.model.params.obstacles != None:
     rviz.addObstacles(robot.model.params.obstacles)
 
-theta = np.linspace(0,2*np.pi,100)
+if robot.track_traj:
+    theta = np.linspace(0,2*np.pi,100)
 
-theta_rot = params.theta_rot_traj
-rot_mat_x = np.array([[1,0,0],
-                    [0,np.cos(theta_rot[0]),-np.sin(theta_rot[0])],
-                    [0,np.sin(theta_rot[0]),np.cos(theta_rot[0])]])
+    theta_rot = params.theta_rot_traj
+    rot_mat_x = np.array([[1,0,0],
+                        [0,np.cos(theta_rot[0]),-np.sin(theta_rot[0])],
+                        [0,np.sin(theta_rot[0]),np.cos(theta_rot[0])]])
 
-rot_mat_y = np.array([[np.cos(theta_rot[1]),0,np.sin(theta_rot[1])],
-                    [0,1,0],
-                    [-np.sin(theta_rot[1]),0,np.cos(theta_rot[1])]])
+    rot_mat_y = np.array([[np.cos(theta_rot[1]),0,np.sin(theta_rot[1])],
+                        [0,1,0],
+                        [-np.sin(theta_rot[1]),0,np.cos(theta_rot[1])]])
 
-rot_mat_z = np.array([[np.cos(theta_rot[2]),-np.sin(theta_rot[2]),0],
-                    [np.sin(theta_rot[2]), np.cos(theta_rot[2]),0],
-                    [0,0,1]])
-rot_mat = rot_mat_x@rot_mat_y@rot_mat_z
+    rot_mat_z = np.array([[np.cos(theta_rot[2]),-np.sin(theta_rot[2]),0],
+                        [np.sin(theta_rot[2]), np.cos(theta_rot[2]),0],
+                        [0,0,1]])
+    rot_mat = rot_mat_x@rot_mat_y@rot_mat_z
 
 
 
-x= get_x_from_theta(theta,params.dim_shape_8)
-y= get_y_from_theta(theta,params.dim_shape_8)
-z=np.zeros(x.shape[0])
+    x= get_x_from_theta(theta,params.dim_shape_8)
+    y= get_y_from_theta(theta,params.dim_shape_8)
+    z=np.zeros(x.shape[0])
 
-x_trj = np.vstack((x,y,z))
-x_trj=rot_mat@x_trj + params.offset_traj.reshape((3,1))
+    x_trj = np.vstack((x,y,z))
+    x_trj=rot_mat@x_trj + params.offset_traj.reshape((3,1))
 
-data = pickle.load(open(f'{params.DATA_DIR}z1_receding_use_netTrue_40hor_10sm_traj_trackmpc.pkl', 'rb'))
+data = pickle.load(open(f'{params.DATA_DIR}z1_receding_use_netFalse_45hor_10sm_mpc.pkl', 'rb'))
 
 x = data['x']
 
