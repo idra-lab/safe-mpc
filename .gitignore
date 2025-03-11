@@ -16,3 +16,4 @@ data/*
 **/__pycache__/
 **/robots/z1_description/urdf/z1_randomized.urdf
 .devcontainer/*
+robots/*

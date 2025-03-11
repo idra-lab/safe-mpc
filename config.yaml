@@ -1,4 +1,4 @@
-test_num: 500             # number of tests
+test_num: 20            # number of tests
 n_steps: 800              # number of time steps in each test
 cpu_num: 24
 
@@ -18,6 +18,17 @@ alpha_reduction: 0.3
 alpha_min: 1e-2
 levenberg_marquardt: 1e0  # 1e-3 in general, 1e-1 for z1 guess, 1e0 for z1 mpc
 ext_flag: '-O2'
+
+ipopt_opts:
+  'ipopt.print_level': 0
+  'print_time': 0
+  'ipopt.tol': 0.000001
+  'ipopt.constr_viol_tol': 0.000001
+  'ipopt.compl_inf_tol': 0.000001
+  'ipopt.hessian_approximation': 'limited-memory'
+  'ipopt.max_iter': 500
+  'ipopt.sb': 'yes'
+        
 
 Q:                        # state cost
   - [100, 0., 0.]
@@ -43,10 +54,17 @@ ws_r: 1e4
 obs_flag: true           # activation of Cartesian constraints
 obs_string: '_obs'
 abort_flag: true         # activation of abort mechanism for receding MPC
-use_net: false             # use the network safe set if true, otherwise analytic safe set
+use_net: true            # use the network safe set if true, otherwise analytic safe set
+
+network_path: 'nn_models/z1/4dof_gelu_obs.pt' # path to network file
+network_size: [8, 256, 1] # input, hidden and output size
+act_fun: 'gelu'
+
+reg_term: 1e-6            # regularization term for anaytic safe set constraints 
 
 frame_ee: 'gripperMover'
-ee_ref: [0.6, 0.28, 0.078]
+ee_position: [0.035, 0., 0.] # ee position in in frame_ee 
+ee_ref: [0.6, 0.13, 0.078]
 ee_radius: 0.05
 
 ddq_max: [0.1       , 1.        , 1.666, 2.333, 2.333, 2.333]
@@ -54,7 +72,7 @@ ddx_max: [0.133, 0.133, 0.133]
 
 obstacles:
   - name: 'floor'
-    type: 'box'
+    type: 'plane'
     dimensions: [2, 2, 1e-3]
     color: [0,0,1,1]
     position: [0.75,0,0]
@@ -63,18 +81,19 @@ obstacles:
       - [0,1,0,0]
       - [0,0,1,0]
       - [0,0,0,1]
-    bounds: [0,1e6] 
+    bounds: [0,1e6]   # bounds: z position of floor and ceil
 
-  - name: 'ball'
-    type: 'sphere'
-    radius: 0.12
-    color: [0,1,1,1]
-    position: [0.6,0,0.12]
-    transform: 
-      - [1,0,0,0.6]
-      - [0,1,0,0]
-      - [0,0,1,0.12]
-      - [0,0,0,1]
+  # - name: 'ball'
+  #   type: 'sphere'
+  #   radius: 0.12
+  #   color: [0,1,1,1]
+  #   position: [0.6,0,0.12]
+  #   transform: 
+  #     - [1,0,0,0.6]
+  #     - [0,1,0,0]
+  #     - [0,0,1,0.12]
+  #     - [0,0,0,1]
+  #   bounds: [0,1e6]     # minimum and maximum distance from the sphere's surface. Minimum distance 0 means ball can be only touched lightly. 
 
 use_capsules: true   # if false, only ee obstacles considered
 
@@ -127,10 +146,10 @@ obstacles_capsules:
 
 collision_pairs:
    - ['arm','ee']
-   - ['ee','ball']
+  # - ['ee','ball']
    - ['ee', 'floor']
    - ['forearm','floor']
-   - ['forearm', 'ball']
+  # - ['forearm', 'ball']
    - ['ee','fixed1']
    - ['ee','fixed2']
    - ['ee','fixed3']

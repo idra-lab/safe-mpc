@@ -50,7 +50,7 @@ if robot.track_traj:
     x_trj = np.vstack((x,y,z))
     x_trj=rot_mat@x_trj + params.offset_traj.reshape((3,1))
 
-data = pickle.load(open(f'{params.DATA_DIR}z1_receding_use_netFalse_45hor_10sm_mpc.pkl', 'rb'))
+data = pickle.load(open(f'{params.DATA_DIR}z1_receding_use_netTrue_50hor_10sm_mpc.pkl', 'rb'))
 
 x = data['x']
 

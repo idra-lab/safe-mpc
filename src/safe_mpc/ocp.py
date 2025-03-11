@@ -63,20 +63,7 @@ class NaiveOCP:
         
     def instantiateProblem(self):
         opti = self.opti
-        opts = {
-            'ipopt.print_level': 0,
-            'print_time': 0,
-            'ipopt.tol': 1e-6,
-            'ipopt.constr_viol_tol': 1e-6,
-            'ipopt.compl_inf_tol': 1e-6,
-            'ipopt.hessian_approximation': 'limited-memory',
-            # 'detect_simple_bounds': 'yes',
-            'ipopt.max_iter': self.params.nlp_max_iter,
-            #'ipopt.linear_solver': 'ma57',
-            'ipopt.sb': 'yes'
-        }
-
-        opti.solver('ipopt', opts)
+        opti.solver('ipopt', self.model.params.ipopt_opts)
         return opti
 
 
@@ -121,14 +108,20 @@ class SoftTerminalOCP(NaiveOCP):
     def additionalSetting(self):
         safe_set_funs = self.model.safe_set.get_constraints_fun()
         safe_set_bounds = self.model.safe_set.get_bounds()
+
+                
         slack_vars =[] 
         for i,func in enumerate(safe_set_funs):
             slack_vars.append(self.opti.variable(1))
-            self.opti.subject_to(self.opti.bounded(safe_set_bounds[i][0],func(self.X[-1])+slack_vars[-1],safe_set_bounds[i][1]))        
-            self.opti.subject_to(
-                self.opti.bounded(0., slack_vars[-1], 1e6)
-            )
-            self.cost += self.params.ws_t * slack_vars[-1]
+            self.opti.subject_to(self.opti.bounded(safe_set_bounds[i][0],func(self.X[-1])+slack_vars[-1],safe_set_bounds[i][1]))     
+            if self.model.safe_set == 'zl':
+                self.opti.subject_to(self.opti.bounded(0., slack_vars[-1], 1e6)) 
+                slack_sign = 1
+            elif self.model.safe_set == 'zu':
+                self.opti.subject_to(self.opti.bounded(-1e6, slack_vars[-1], 0))    
+                slack_sign=-1
+            
+            self.cost += self.params.ws_t * slack_sign*slack_vars[-1]
 
     def reset_controller(self):
         pass

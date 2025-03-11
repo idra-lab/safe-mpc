@@ -3,6 +3,7 @@ import yaml
 import numpy as np
 import argparse
 from urdf_parser_py.urdf import URDF
+import torch
 
 
 def parse_args():
@@ -25,6 +26,11 @@ def parse_args():
     return vars(parser.parse_args())
 
 def align_vectors(a, b):
+    """
+    Function used only for obstacle capsule visualization purposes. Its purpose is to find the transformation matrix to get vector b when applied to a.
+    The matrix is saved in as the transformation for fixed capsule, and a used there is always [0,1,0] because it is the default cylinder's 
+    axis direction (a capsule is rendered using 3 solids: 2 sphere and 1 cylinder).
+    """
     b = b / np.linalg.norm(b) # normalize a
     a = a / np.linalg.norm(a) # normalize b
     v = np.cross(a, b)
@@ -37,8 +43,8 @@ def align_vectors(a, b):
     h = 1 / (1 + c)
 
     Vmat = np.array([[0, -v3, v2],
-                  [v3, 0, -v1],
-                  [-v2, v1, 0]])
+                     [v3, 0, -v1],
+                     [-v2,v1, 0]])
 
     R = np.eye(3, dtype=np.float64) + Vmat + (Vmat.dot(Vmat) * h)
     return R
@@ -74,12 +80,27 @@ class Parameters:
         self.N = int(parameters['N'])
         self.back_hor = int(parameters['back_hor'])
         self.dt = float(parameters['dt'])
+        
         self.alpha = float(parameters['alpha'])
-        self.act = 'gelu' if urdf_name == 'z1' else 'relu'
+        self.act = str(parameters['act_fun'])
+        nls = {
+            'relu': torch.nn.ReLU(),
+            'elu': torch.nn.ELU(),
+            'tanh': torch.nn.Tanh(),
+            'gelu': torch.nn.GELU(approximate='tanh'),
+            'silu': torch.nn.SiLU()
+        }
+        self.act_fun = nls[self.act]
+        self.net_size = parameters['network_size']
         self.use_net = bool(parameters['use_net'])
-        self.nq = int(parameters['n_dofs'])
         self.n_dof_safe_set = int(parameters['n_dof_safe_set'])
+        self.net_path = str(parameters['network_path'])
+
+        self.reg_term_analytic_constr = float(parameters['reg_term'])
+
+        self.nq = int(parameters['n_dofs'])
         self.ee_ref = np.array(parameters['ee_ref'])
+        self.ee_pos = np.array(parameters['ee_position'])
 
         self.solver_type = 'SQP_RTI' if rti else 'SQP'
         self.solver_mode = parameters['solver_mode']
@@ -89,6 +110,10 @@ class Parameters:
         self.alpha_min = float(parameters['alpha_min'])
         self.levenberg_marquardt = float(parameters['levenberg_marquardt'])
         self.ext_flag = parameters['ext_flag']
+
+        self.ipopt_opts = dict() 
+        for entry in parameters['ipopt_opts']:
+            self.ipopt_opts[entry] = parameters['ipopt_opts'][entry]
         
         self.tol_x = float(parameters['tol_x'])
         self.tol_tau = float(parameters['tol_tau'])

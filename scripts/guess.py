@@ -58,6 +58,10 @@ while succ < num_ics:
                 sol = opti.debug
                 fails += 1
                 print('failed')
+                for jj in range(i):
+                    del x_guess[jj][-1]
+                    del u_guess[jj][-1]    
+
                 break
             if i == len(ocp_names)-1:
                 progress_bar.update(1)
@@ -73,6 +77,7 @@ equal = True
 for i in range(len(x_guess[0])):
     for j in range(len(x_guess)):
         if (np.abs(x_guess[0][i][0] - x_guess[j][i][0]) > 1e-4 ).any():
+            print(f'j:{j} , i:{i}')
             equal = False
             break
 if equal: 

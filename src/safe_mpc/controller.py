@@ -10,7 +10,6 @@ import sympy as sym
 class AbstractController:
     def __init__(self, model):
         self.model = model
-        self.ocp_name = "".join(re.findall('[A-Z][^A-Z]*', self.__class__.__name__)[:-1]).lower() + self.model.params.solver_type + self.model.net_name
 
         self.N = self.model.params.N
         self.ocp = AcadosOcp()
@@ -93,6 +92,8 @@ class AbstractController:
         self.ocp.solver_options.levenberg_marquardt = self.model.params.levenberg_marquardt
         self.ocp.solver_options.ext_fun_compile_flags = self.model.params.ext_flag
 
+        self.reset_controller()
+        self.ocp_name = "".join(re.findall('[A-Z][^A-Z]*', self.__class__.__name__)[:-1]).lower() + self.model.params.solver_type + self.model.net_name
         gen_name = self.model.params.GEN_DIR + 'ocp_' + self.ocp_name + '_' + self.model.amodel.name
         self.ocp.code_export_directory = gen_name
         self.ocp_solver = AcadosOcpSolver(self.ocp, json_file=gen_name + '.json', build=self.model.params.build)
@@ -112,8 +113,6 @@ class AbstractController:
         self.time_fields = ['time_lin', 'time_sim', 'time_qp', 'time_qp_solver_call',
                             'time_glob', 'time_reg', 'time_tot']
         self.last_status = 4
-
-        self.reset_controller()
 
         self.track_traj = self.model.params.track_traj
         if self.track_traj:
@@ -187,7 +186,7 @@ class AbstractController:
         if soft:
             self.idxhs_e = np.hstack((self.idxhs_e,np.arange(num_nl_e, num_nl_e + constraint_num)))
 
-            self.zl_e = np.hstack((self.zl_e,np.zeros(self.idxhs_e.size)))
+            self.zl_e = np.hstack((self.zl_e,self.model.params.ws_t*np.ones(self.idxhs_e.size)))
             self.zu_e = np.hstack((self.zu_e,np.zeros(self.idxhs_e.size)))
             self.Zl_e = np.hstack((self.Zl_e,np.zeros(self.idxhs_e.size)))
             self.Zu_e = np.hstack((self.Zu_e,np.zeros(self.idxhs_e.size)))
@@ -206,7 +205,7 @@ class AbstractController:
             self.idxhs = np.hstack((self.idxhs,np.arange(num_nl, num_nl + constraint_num)))
 
             # Set zl initially to zero, then apply receding constraint in the step method
-            self.zl = np.hstack((self.zl,np.zeros(self.idxhs.size)))
+            self.zl = np.hstack((self.zl,self.model.params.ws_r*np.ones(self.idxhs_e.size)))
             self.zu = np.hstack((self.zu,np.zeros(self.idxhs.size)))
             self.Zl = np.hstack((self.Zl,np.zeros(self.idxhs.size)))
             self.Zu = np.hstack((self.Zu,np.zeros(self.idxhs.size)))
@@ -312,6 +311,7 @@ class AbstractController:
     def reset_controller(self):
         self.fails = 0
         self.model.params.use_net = None
+        self.model.net_name = ''
 
 class NaiveController(AbstractController):
     def __init__(self, model):
@@ -368,7 +368,6 @@ class STController(NaiveController):
 
     def reset_controller(self):
         self.fails = 0
-        self.r = self.N
         
 
 class STWAController(STController):
@@ -421,19 +420,23 @@ class RecedingController(STWAController):
         self.terminalSetConstraint(soft=True)
         self.runningSetConstraint(soft=False)
 
+    def reset_controller(self):
+        super().reset_controller()
+        self.r = self.N
+        
     def step(self, x):
         # Terminal constraint
-        self.ocp_solver.cost_set(self.N, self.model.safe_set.constraint_bound, self.model.params.ws_t * np.ones((self.zl_e.size,)))
+        self.ocp_solver.cost_set(self.N, 'zl', self.model.params.ws_t * np.ones((self.zl_e.size,)))
         self.ocp_solver.set(self.N, "p", np.hstack([self.model.ee_ref, [self.model.params.alpha, 1.]]))
         
         # Receding constraint
         if self.r < self.N:
-            self.ocp_solver.cost_set(self.r, self.model.safe_set.constraint_bound, self.model.params.ws_r * np.ones((self.zl.size,)))
+            self.ocp_solver.cost_set(self.r, 'zl', self.model.params.ws_r * np.ones((self.zl.size,)))
             self.ocp_solver.set(self.r, "p", np.hstack([self.model.ee_ref, [self.model.params.alpha, 1.]]))
         for i in range(1,self.N):
             if i != self.r:
                 # No constraints on other running states
-                self.ocp_solver.cost_set(i,self.model.safe_set.constraint_bound, np.zeros((self.zl.size,)))
+                self.ocp_solver.cost_set(i,'zl', np.zeros((self.zl.size,)))
                 # self.ocp_solver.constraints_set(i, "lh", lh)
                 self.ocp_solver.set(i, "p", np.hstack([self.model.ee_ref, [self.model.params.alpha, -1.]]))
         # Solve the OCP
@@ -529,12 +532,12 @@ class ParallelController(RecedingController):
         self.runningSetConstraint(soft=False)
 
     def constrain_n(self,n_constr):
-        self.ocp_solver.cost_set(n_constr, self.model.safe_set.constraint_bound , self.model.params.ws_r * np.ones((self.zl.size,)))
+        self.ocp_solver.cost_set(n_constr, 'zl' , self.model.params.ws_r * np.ones((self.zl.size,)))
         self.ocp_solver.set(n_constr, "p", np.hstack([self.model.ee_ref, [self.model.params.alpha, 1.]]))
         for i in range(1,self.N+1):
             if i != n_constr:
                 # No constraints on other running states
-                self.ocp_solver.cost_set(i, self.model.safe_set.constraint_bound , np.ones((self.zl.size,)))
+                self.ocp_solver.cost_set(i, 'zl' , np.ones((self.zl.size,)))
                 self.ocp_solver.set(i, "p", np.hstack([self.model.ee_ref, [self.model.params.alpha, -1.]]))
 
     def check_safe_n(self):

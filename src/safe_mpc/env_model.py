@@ -12,14 +12,13 @@ import torch.nn as nn
 import l4casadi as l4c
 from .safe_set import NetSafeSet, AnalyticSafeSet
 import xml.etree.ElementTree as ET
+from .utils import rot_mat_x,rot_mat_y,rot_mat_z
 
 class AdamModel:
     def __init__(self, params):
         self.params = params
         self.amodel = AcadosModel()
-        # Robot dynamics with Adam (IIT)
-        self.robbot = URDF.from_xml_file(params.robot_urdf)
-                
+        # Robot dynamics with Adam (IIT)                
         robot_joints = []
         jj=0
         while jj < self.params.nq:
@@ -56,7 +55,9 @@ class AdamModel:
         self.x = MX.sym("x", nq * 2)
         self.x_dot = MX.sym("x_dot", nq * 2)
         self.u = MX.sym("u", nq)
-        self.p = MX.sym("p", 5)     # Safety margin for the NN model, EE, logic variable
+        self.p = MX.sym("p", 5)     # Safety margin for the NN model in percentage ex (10% defined as 10), EE reference (where you want to move the EE), logic variable: 1 to activate the safe set constraint, -1 to deactivate it
+        
+        self.if_else_constraint_var = self.p[4]
         
         # Double integrator
         self.f_disc = vertcat(
@@ -77,7 +78,7 @@ class AdamModel:
         self.nv = nq
         self.np = self.amodel.p.size()[0]
 
-        # Real dynamics
+        # Inverse dynamics, torque computation
         H_b = np.eye(4)
         self.tau = self.mass(H_b, self.x[:nq])[6:, 6:] @ self.u + \
                    self.bias(H_b, self.x[:nq], np.zeros(6), self.x[nq:])[6:]
@@ -91,13 +92,13 @@ class AdamModel:
 
         # EE position (global frame)
         T_ee = self.fk(np.eye(4), self.x[:nq])
-        self.t_loc = np.array([0.035, 0., 0.])
+        self.t_loc = self.params.ee_pos
         self.t_glob = T_ee[:3, 3] + T_ee[:3, :3] @ self.t_loc
         self.ee_fun = Function('ee_fun', [self.x], [self.t_glob])
 
         # Noisy EE position (global frame)
         T_ee_noisy = self.fk_noisy(np.eye(4), self.x[:nq])
-        self.t_loc_noisy = np.array([0.035, 0., 0.])
+        self.t_loc_noisy = self.params.ee_pos
         self.t_glob_noisy = T_ee_noisy[:3, 3] + T_ee_noisy[:3, :3] @ self.t_loc_noisy
         self.ee_fun_noisy = Function('ee_fun', [self.x], [self.t_glob_noisy])
 
@@ -113,7 +114,6 @@ class AdamModel:
 
         self.tau_min = - joint_effort
         self.tau_max = joint_effort
-        print(self.tau_max)
         self.x_min = np.hstack([joint_lower, - joint_velocity])
         self.x_max = np.hstack([joint_upper, joint_velocity])
 
@@ -133,21 +133,7 @@ class AdamModel:
             rot_mat=np.eye(4)
             if capsule['rotation_offset'] != None:
                 th_off=capsule['rotation_offset']
-                rot_mat_x = np.array([[1,0,0,0],
-                                        [0,np.cos(th_off[0]),-np.sin(th_off[0]),0],
-                                        [0,np.sin(th_off[0]),np.cos(th_off[0]),0],
-                                        [0,0,0,1]])
-                
-                rot_mat_y = np.array([[np.cos(th_off[1]),0,np.sin(th_off[1]),0],
-                                        [0,1,0,0],
-                                        [-np.sin(th_off[1]),0,np.cos(th_off[1]),0],
-                                        [0,0,0,1]])
-                
-                rot_mat_z = np.array([[np.cos(th_off[2]),-np.sin(th_off[2]),0,0],
-                                        [np.sin(th_off[2]), np.cos(th_off[2]),0,0],
-                                        [0,0,1,0],
-                                        [0,0,0,1]])
-                rot_mat = rot_mat_x@rot_mat_y@rot_mat_z
+                rot_mat = rot_mat_x(th_off[0])@rot_mat_y(th_off[1])@rot_mat_z(th_off[2])
             if capsule['spatial_offset'] != None:
                 prism_mat = np.array([[1,0,0,capsule['spatial_offset'][0]],
                                         [0,1,0,capsule['spatial_offset'][1]],
@@ -157,10 +143,10 @@ class AdamModel:
             fk_capsule_points = self.kin_dyn.forward_kinematics_fun(capsule['link_name'])   
             T_capsule_points = fk_capsule_points(np.eye(4), self.x[:self.nq])@rot_mat
             capsule['end_points_fk'] = deepcopy([(T_capsule_points @ capsule['end_points'][0])[:3],
-                                                    (T_capsule_points @ capsule['end_points'][1])[:3]])
+                                                 (T_capsule_points @ capsule['end_points'][1])[:3]])
             capsule['end_points_T_fun'] = deepcopy(cs.Function(f'fun_T_{n_cap}',[self.x],[T_capsule_points]))
             capsule['end_points_fk_fun'] = deepcopy(cs.Function(f'fun_fk_{n_cap}',[self.x],[(T_capsule_points @ capsule['end_points'][0])[:3],
-                                                                                                    (T_capsule_points @ capsule['end_points'][1])[:3]]))
+                                                                                            (T_capsule_points @ capsule['end_points'][1])[:3]]))
             n_cap += 1
         for capsule in self.params.obst_capsules:
             capsule['index']=n_cap
@@ -181,9 +167,6 @@ class AdamModel:
         elif self.params.use_net == False: 
             self.safe_set = AnalyticSafeSet(self)
             self.net_name = 'analytic_set'
-        else:
-            self.safe_set=None
-            self.net_name = ''
 
     def checkStateConstraints(self, x):
         return np.all(np.logical_and(x >= self.x_min - self.params.tol_x, 

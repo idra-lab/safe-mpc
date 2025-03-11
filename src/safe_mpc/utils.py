@@ -58,7 +58,23 @@ def get_controller(cont_name, model) -> AbstractController:
         return controllers[cont_name](model)
     else:
         raise ValueError(f'Controller {cont_name} not available')
-
+    
+def rot_mat_x(theta):
+    return np.array([[1,0,0,0],
+                     [0,np.cos(theta),-np.sin(theta),0],
+                     [0,np.sin(theta),np.cos(theta),0],
+                     [0,0,0,1]])
+    
+def rot_mat_y(theta):
+    return  np.array([[np.cos(theta),0,np.sin(theta),0],
+                      [0,1,0,0],
+                      [-np.sin(theta),0,np.cos(theta),0],
+                      [0,0,0,1]])
+def rot_mat_z(theta):
+    return np.array([[np.cos(theta),-np.sin(theta),0,0],
+                     [np.sin(theta), np.cos(theta),0,0],
+                     [0,0,1,0],
+                     [0,0,0,1]])
 
 ### VISUALIZER ###
 class RobotVisualizer:
@@ -111,7 +127,7 @@ class RobotVisualizer:
     
     def addObstacles(self, obstacles):
         for obs in obstacles:
-            if obs['type'] == 'box':
+            if obs['type'] == 'plane':
                 box = meshcat.geometry.Box(obs['dimensions'])
                 self.viz.viewer['world/obstacle/' + obs['name']].set_object(box)
                 self.viz.viewer['world/obstacle/' + obs['name']].set_property('color', list(obs['color']))
@@ -153,26 +169,20 @@ class RobotVisualizer:
                             [0,0,0,1]])
         # self.viz.viewer[f'world/obstacle/sphere1{capsule["index"]}'].set_property('visible', True)
         if capsule['type'] == 'moving_capsule':
-            self.viz.viewer[f'world/obstacle/sphere1{capsule["index"]}'].set_transform(np.array(self.compute_T(capsule['end_points_T_fun'](q),capsule['end_points'][0])@rot_mat))
+            self.viz.viewer[f'world/obstacle/sphere1{capsule["index"]}'].set_transform(np.array(self.compute_T(capsule['end_points_T_fun'](q),capsule['end_points'][0])))
+            self.viz.viewer[f'world/obstacle/cylinder1{capsule["index"]}'].set_transform(np.array(self.compute_T(capsule['end_points_T_fun'](q),(capsule['end_points'][0]+capsule['end_points'][1])/2)@rot_mat))
+            self.viz.viewer[f'world/obstacle/sphere2{capsule["index"]}'].set_transform(np.array(self.compute_T(capsule['end_points_T_fun'](q),capsule['end_points'][1])))
         elif capsule['type'] == 'fixed_capsule':
             T_Tmp = np.eye(4)
             T_Tmp[:3,3] = capsule['end_points'][0]
-            self.viz.viewer[f'world/obstacle/sphere1{capsule["index"]}'].set_transform(T_Tmp@rot_mat)
-        # self.viz.viewer[f'world/obstacle/cylinder1{capsule["index"]}'].set_property('visible', True)
-        if capsule['type'] == 'moving_capsule':
-            self.viz.viewer[f'world/obstacle/cylinder1{capsule["index"]}'].set_transform(np.array(self.compute_T(capsule['end_points_T_fun'](q),(capsule['end_points'][0]+capsule['end_points'][1])/2)@rot_mat))
-        elif capsule['type'] == 'fixed_capsule':
+            self.viz.viewer[f'world/obstacle/sphere1{capsule["index"]}'].set_transform(T_Tmp)
             T_Tmp = np.eye(4)
             T_Tmp[:3,:3] = capsule['end_points_T_fun']
             T_Tmp[:3,3] = (capsule['end_points'][0]+capsule['end_points'][1])/2
             self.viz.viewer[f'world/obstacle/cylinder1{capsule["index"]}'].set_transform(T_Tmp)
-        # self.viz.viewer[f'world/obstacle/sphere2{capsule["index"]}'].set_property('visible', True)
-        if capsule['type'] == 'moving_capsule':
-            self.viz.viewer[f'world/obstacle/sphere2{capsule["index"]}'].set_transform(np.array(self.compute_T(capsule['end_points_T_fun'](q),capsule['end_points'][1])@rot_mat))
-        elif capsule['type'] == 'fixed_capsule':
             T_Tmp = np.eye(4)
             T_Tmp[:3,3] = capsule['end_points'][1]
-            self.viz.viewer[f'world/obstacle/sphere2{capsule["index"]}'].set_transform(T_Tmp@rot_mat)
+            self.viz.viewer[f'world/obstacle/sphere2{capsule["index"]}'].set_transform(T_Tmp)
 
     def display(self, q):
         self.viz.display(q)
