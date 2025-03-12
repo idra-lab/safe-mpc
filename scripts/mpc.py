@@ -117,7 +117,7 @@ for i in range(0,x_init.shape[0]):
                     viol = np.min(np.vstack((model.x_max - controller.x_temp[k], controller.x_temp[k] - model.x_min)), axis=0)
                     if np.any(viol + params.tol_x < 0):
                         print(f'\t\tState {k} out of bounds: {viol}')
-        if not model.checkTorqueConstraints(tau):
+        if not model.checkTorqueBounds(tau):
             counters[1] += 1
             if EVAL:
                 print(f'Step: {j}')
@@ -157,7 +157,7 @@ for i in range(0,x_init.shape[0]):
         x_sim[j + 1], _ = model.integrate(x_sim[j], u[j])
 
         # Check next state bounds and collision
-        if not model.checkStateConstraints(x_sim[j + 1]):   
+        if not model.checkStateBounds(x_sim[j + 1]):   
             if CALLBACK:
                 print('  FAIL BOUNDS')
                 print(f'\tState {j + 1} violation: {np.min(np.vstack((model.x_max - x_sim[j + 1], x_sim[j + 1] - model.x_min)), axis=0)}')

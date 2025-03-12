@@ -106,15 +106,14 @@ class AbstractController:
         self.u_guess = np.zeros((self.N, self.model.nu))
         self.x_temp, self.u_temp = np.copy(self.x_guess), np.copy(self.u_guess)
 
-        # Viable state (None for Naive and ST controllers)
-        self.x_viable = None
-
         # Time stats
         self.time_fields = ['time_lin', 'time_sim', 'time_qp', 'time_qp_solver_call',
                             'time_glob', 'time_reg', 'time_tot']
         self.last_status = 4
 
         self.track_traj = self.model.params.track_traj
+        from .utils import rot_mat_x,rot_mat_y,rot_mat_z
+        
         if self.track_traj:
             self.a_shape_8 = self.model.params.dim_shape_8
             self.offset_traj = np.array(self.model.params.offset_traj).reshape(3,1)
@@ -128,23 +127,12 @@ class AbstractController:
             self.dx_fun = sym.lambdify(t_sym,dx.subs({a_sym:self.a_shape_8}))
             self.dy_fun = sym.lambdify(t_sym,dy.subs({a_sym:self.a_shape_8})) 
 
-            rot_mat__traj_x = np.array([[1,0,0],
-                                        [0,np.cos(self.model.params.theta_rot_traj[0]),-np.sin(self.model.params.theta_rot_traj[0])],
-                                        [0,np.sin(self.model.params.theta_rot_traj[0]),np.cos(self.model.params.theta_rot_traj[0])]])
-
-            rot_mat__traj_y = np.array([[np.cos(self.model.params.theta_rot_traj[1]),0,np.sin(self.model.params.theta_rot_traj[1])],
-                                        [0,1,0],
-                                        [-np.sin(self.model.params.theta_rot_traj[1]),0,np.cos(self.model.params.theta_rot_traj[1])]])
-
-            rot_mat__traj_z = np.array([[np.cos(self.model.params.theta_rot_traj[2]),-np.sin(self.model.params.theta_rot_traj[2]),0],
-                                        [np.sin(self.model.params.theta_rot_traj[2]), np.cos(self.model.params.theta_rot_traj[2]),0],
-                                        [0,0,1]])
-            self.rot_mat__traj = rot_mat__traj_x@rot_mat__traj_y@rot_mat__traj_z
+            self.rot_mat__traj = rot_mat_x(self.model.params.theta_rot_traj[0])@rot_mat_y(self.model.params.theta_rot_traj[1])@rot_mat_z(self.model.params.theta_rot_traj[2])
 
             self.traj_to_track = np.zeros((3,self.N+1))
             self.theta_traj = 0
             self.vel_max_traj = self.model.params.vel_max_traj
-            self.acc_traj = self.vel_max_traj/(self.model.params.n_steps*0.9)
+            self.acc_traj = self.vel_max_traj/(self.model.params.n_steps*self.model.params.acc_time)
             self.vel_traj = self.vel_max_traj if self.model.params.vel_const else 0
 
             self.generate_trajectory(self.vel_traj)
@@ -168,47 +156,6 @@ class AbstractController:
 
     def additionalSetting(self):
         pass
-
-    def terminalSetConstraint(self, soft=True):
-        # Get the actual number of nl_constraints --> will be the index for the soft constraint
-        num_nl_e = np.sum([c[0].shape[0] for c in self.nl_con_e])
-        safe_set_constraints = self.model.safe_set.get_constraints()
-        bounds = self.model.safe_set.get_bounds()
-        constraint_num = 0
-        for i, constr in enumerate(safe_set_constraints):
-            self.nl_con_e.append([constr,bounds[i][0],bounds[i][1]])
-            constraint_num += constr.shape[0]
-
-        if self.model.params.use_net:
-            self.ocp.solver_options.model_external_shared_lib_dir = self.model.safe_set.l4c_model.shared_lib_dir
-            self.ocp.solver_options.model_external_shared_lib_name = self.model.safe_set.l4c_model.name
-
-        if soft:
-            self.idxhs_e = np.hstack((self.idxhs_e,np.arange(num_nl_e, num_nl_e + constraint_num)))
-
-            self.zl_e = np.hstack((self.zl_e,self.model.params.ws_t*np.ones(self.idxhs_e.size)))
-            self.zu_e = np.hstack((self.zu_e,np.zeros(self.idxhs_e.size)))
-            self.Zl_e = np.hstack((self.Zl_e,np.zeros(self.idxhs_e.size)))
-            self.Zu_e = np.hstack((self.Zu_e,np.zeros(self.idxhs_e.size)))
-
-    def runningSetConstraint(self, soft=True):
-        # Suppose that the NN model is already set (same for external model shared lib)
-        num_nl = np.sum([c[0].shape[0] for c in self.nl_con])
-        safe_set_constraints = self.model.safe_set.get_constraints()
-        bounds = self.model.safe_set.get_bounds()
-        constraint_num = 0
-        for i, constr in enumerate(safe_set_constraints):
-            self.nl_con.append([constr,bounds[i][0],bounds[i][1]])
-            constraint_num += constr.shape[0]
-
-        if soft:
-            self.idxhs = np.hstack((self.idxhs,np.arange(num_nl, num_nl + constraint_num)))
-
-            # Set zl initially to zero, then apply receding constraint in the step method
-            self.zl = np.hstack((self.zl,self.model.params.ws_r*np.ones(self.idxhs_e.size)))
-            self.zu = np.hstack((self.zu,np.zeros(self.idxhs.size)))
-            self.Zl = np.hstack((self.Zl,np.zeros(self.idxhs.size)))
-            self.Zu = np.hstack((self.Zu,np.zeros(self.idxhs.size)))
 
     def solve(self, x0):
         # Reset current iterate
@@ -369,6 +316,28 @@ class STController(NaiveController):
     def __init__(self, model):
         super().__init__(model)
 
+    def terminalSetConstraint(self, soft=True):
+        # Get the actual number of nl_constraints --> will be the index for the soft constraint
+        num_nl_e = np.sum([c[0].shape[0] for c in self.nl_con_e])
+        safe_set_constraints = self.model.safe_set.get_constraints()
+        bounds = self.model.safe_set.get_bounds()
+        constraint_num = 0
+        for i, constr in enumerate(safe_set_constraints):
+            self.nl_con_e.append([constr,bounds[i][0],bounds[i][1]])
+            constraint_num += constr.shape[0]
+
+        if self.model.params.use_net:
+            self.ocp.solver_options.model_external_shared_lib_dir = self.model.safe_set.l4c_model.shared_lib_dir
+            self.ocp.solver_options.model_external_shared_lib_name = self.model.safe_set.l4c_model.name
+
+        if soft:
+            self.idxhs_e = np.hstack((self.idxhs_e,np.arange(num_nl_e, num_nl_e + constraint_num)))
+
+            self.zl_e = np.hstack((self.zl_e,self.model.params.ws_t*np.ones(self.idxhs_e.size)))
+            self.zu_e = np.hstack((self.zu_e,np.zeros(self.idxhs_e.size)))
+            self.Zl_e = np.hstack((self.Zl_e,np.zeros(self.idxhs_e.size)))
+            self.Zu_e = np.hstack((self.Zu_e,np.zeros(self.idxhs_e.size)))
+
     def additionalSetting(self):
         self.terminalSetConstraint()
 
@@ -379,7 +348,7 @@ class STController(NaiveController):
 class STWAController(STController):
     def __init__(self, model):
         super().__init__(model)
-        self.x_viable = None
+        self.x_viable = self.x_guess[-1]
 
     def checkGuess(self):
         return self.model.checkRunningConstraints(self.x_temp, self.u_temp) and \
@@ -389,8 +358,7 @@ class STWAController(STController):
 
     def step(self, x):
         status = self.solve(x)
-        if status == 0 and self.model.checkStateConstraints(self.x_temp) and \
-                np.all([self.model.checkCollision(x) for x in self.x_temp]):
+        if status == 0 and self.model.checkStateConstraints(self.x_temp):
             self.fails = 0
         else:
             if self.fails == 0:
@@ -421,10 +389,33 @@ class RecedingController(STWAController):
         self.r_last = self.N
         self.abort_flag = self.model.params.abort_flag
 
+    def runningSetConstraint(self, soft=True):
+        # Suppose that the NN model is already set (same for external model shared lib)
+        num_nl = np.sum([c[0].shape[0] for c in self.nl_con])
+        safe_set_constraints = self.model.safe_set.get_constraints()
+        bounds = self.model.safe_set.get_bounds()
+        constraint_num = 0
+        for i, constr in enumerate(safe_set_constraints):
+            self.nl_con.append([constr,bounds[i][0],bounds[i][1]])
+            constraint_num += constr.shape[0]
+
+        if self.model.params.use_net:
+            self.ocp.solver_options.model_external_shared_lib_dir = self.model.safe_set.l4c_model.shared_lib_dir
+            self.ocp.solver_options.model_external_shared_lib_name = self.model.safe_set.l4c_model.name
+
+        if soft:
+            self.idxhs = np.hstack((self.idxhs,np.arange(num_nl, num_nl + constraint_num)))
+
+            # Set zl initially to zero, then apply receding constraint in the step method
+            self.zl = np.hstack((self.zl,self.model.params.ws_r*np.ones(self.idxhs_e.size)))
+            self.zu = np.hstack((self.zu,np.zeros(self.idxhs.size)))
+            self.Zl = np.hstack((self.Zl,np.zeros(self.idxhs.size)))
+            self.Zu = np.hstack((self.Zu,np.zeros(self.idxhs.size)))
+
     def additionalSetting(self):
         # Terminal constraint before, since it construct the nn model
-        self.terminalSetConstraint(soft=True)
         self.runningSetConstraint(soft=False)
+        self.terminalSetConstraint(soft=True)
 
     def reset_controller(self):
         super().reset_controller()
@@ -460,8 +451,7 @@ class RecedingController(STWAController):
             self.r = self.N
             return self.u_guess[0], True
 
-        if status == 0 and self.model.checkStateConstraints(self.x_temp)  \
-                and np.all([self.model.checkCollision(x) for x in self.x_temp]):
+        if status == 0 and self.model.checkStateConstraints(self.x_temp) :
             self.fails = 0
             for i in range(self.r + 2, self.N + 1):
                 if self.model.checkSafeConstraints(self.x_temp[i]):
@@ -475,7 +465,7 @@ class RecedingController(STWAController):
         super().resetHorizon(N)
         self.r=N    
 
-class RealReceding(STWAController):
+class RecedingEquality(STWAController):
     def __init__(self, model, obstacles):
         super().__init__(model, obstacles)
         self.r = self.N
@@ -560,10 +550,9 @@ class ParallelController(RecedingController):
         # Solve the OCP
         status = self.solve(x)
         checked_r = self.check_safe_n()
-        if (status==0) and \
-             np.all([self.model.checkCollision(x) for x in self.x_temp]):
+        if (status==0):
         
-            constr_ver = checked_r if checked_r >= self.r else self.r
+            constr_ver = max(checked_r,self.r)
 
             if (constr_ver-self.r>=0) and\
                 self.model.checkStateConstraints(self.x_temp):
@@ -597,7 +586,7 @@ class ParallelController(RecedingController):
             if self.r ==1:
                 self.x_viable = np.copy(self.x_guess[1])
                 self.r = self.N
-                print("NOT SOLVED")
+                #print("NOT SOLVED")
                 #_,self.x_viable = self.simulator.checkSafeIntegrate([x],self.u_guess,self.r)
                 if self.model.params.use_net:
                     print(f'is x viable:{self.model.safe_set.nn_func(self.x_viable,self.model.params.alpha)}')

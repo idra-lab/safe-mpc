@@ -25,6 +25,7 @@ class AbstractSafeSet():
         self.constraints = []
         self.constraints_fun = []
         self.bounds = []
+        self.constraint_bound = 'zl'
     
     def get_constraints(self):
         return self.constraints

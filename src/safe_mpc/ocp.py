@@ -114,10 +114,10 @@ class SoftTerminalOCP(NaiveOCP):
         for i,func in enumerate(safe_set_funs):
             slack_vars.append(self.opti.variable(1))
             self.opti.subject_to(self.opti.bounded(safe_set_bounds[i][0],func(self.X[-1])+slack_vars[-1],safe_set_bounds[i][1]))     
-            if self.model.safe_set == 'zl':
+            if self.model.safe_set.constraint_bound == 'zl':
                 self.opti.subject_to(self.opti.bounded(0., slack_vars[-1], 1e6)) 
                 slack_sign = 1
-            elif self.model.safe_set == 'zu':
+            elif self.model.safe_setconstraint_bound == 'zu':
                 self.opti.subject_to(self.opti.bounded(-1e6, slack_vars[-1], 0))    
                 slack_sign=-1
             

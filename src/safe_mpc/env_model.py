@@ -12,7 +12,7 @@ import torch.nn as nn
 import l4casadi as l4c
 from .safe_set import NetSafeSet, AnalyticSafeSet
 import xml.etree.ElementTree as ET
-from .utils import rot_mat_x,rot_mat_y,rot_mat_z, casadi_segment_dist,ball_segment_dist,ball_ee_dist,floor_ee_dist, randomize_model
+from .utils import rot_mat_x,rot_mat_y,rot_mat_z, casadi_segment_dist,ball_segment_dist,ball_ee_dist,plane_ee_dist, randomize_model
 
 class AdamModel:
     def __init__(self, params):
@@ -169,17 +169,24 @@ class AdamModel:
 
     def checkStateConstraints(self, x):
         return np.all(np.logical_and(x >= self.x_min - self.params.tol_x, 
+                                     x <= self.x_max + self.params.tol_x)) and \
+                                     self.checkCollision(x)
+
+    def checkStateBounds(self, x):
+        return np.all(np.logical_and(x >= self.x_min - self.params.tol_x, 
                                      x <= self.x_max + self.params.tol_x))
 
-    def checkTorqueConstraints(self, tau):
-        # for i in range(len(tau)):
-        #     print(f' Iter {i} : {self.tau_max - np.abs(tau[i].flatten())}')
+    def checkTorqueConstraints(self, x,u):
+        tau = np.array([self.tau_fun(x[i], u[i]).T for i in range(len(u))])
+        return np.all(np.logical_and(tau >= self.tau_min - self.params.tol_tau, 
+                                     tau <= self.tau_max + self.params.tol_tau))
+    
+    def checkTorqueBounds(self,tau):
         return np.all(np.logical_and(tau >= self.tau_min - self.params.tol_tau, 
                                      tau <= self.tau_max + self.params.tol_tau))
 
     def checkRunningConstraints(self, x, u):
-        tau = np.array([self.tau_fun(x[i], u[i]).T for i in range(len(u))])
-        return self.checkStateConstraints(x) and self.checkTorqueConstraints(tau)
+        return self.checkStateConstraints(x) and self.checkTorqueBounds(x,u)
 
     def checkSafeConstraints(self, x):
         return self.safe_set.check_constraint(x) 
@@ -209,10 +216,12 @@ class AdamModel:
         return np.linalg.norm(x - x_sim) < self.params.tol_dyn * np.sqrt(n+1) 
     
     def checkCollision(self, x):
-        for pair in self.collisions_constr_fun:
-            if not(pair[1]<=pair[0](x)<=pair[2]):
-                return False
-        return True
+        x_tmp = np.atleast_2d(deepcopy(x))
+        for i in range(len(x_tmp)):
+            for pair in self.collisions_constr_fun:
+                if not(pair[1]<=pair[0](x_tmp[i])<=pair[2]):
+                    return False
+            return True
 
     
     def generate_NLconstraints_list(self):
@@ -249,7 +258,7 @@ class AdamModel:
                                           constraint_list_N[-1][1]-self.params.tol_obs,constraint_list_N[-1][2]+self.params.tol_obs])
                 elif pair['type'] == 'capsule-plane':
                     for point in pair['elements'][0]['end_points_fk']:
-                        constraint_list_0.append([point[2],pair['elements'][1]['bounds'][0]+pair['elements'][0]['radius'],pair['elements'][1]['bounds'][1]-pair['elements'][0]['radius']])
+                        constraint_list_0.append([point[obs['perpendicular_axis']],pair['elements'][1]['bounds'][0]+pair['elements'][0]['radius'],pair['elements'][1]['bounds'][1]-pair['elements'][0]['radius']])
                         constraint_list_1_N_minus_1.append(constraint_list_0[-1])
                         constraint_list_N.append(constraint_list_0[-1])
                         self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}",[self.x],[constraint_list_N[-1][0]]), \
@@ -264,8 +273,8 @@ class AdamModel:
                     constraint_list_N.append(constraint_list_0[-1])
                     self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}",[self.x],[constraint_list_N[-1][0]]), \
                                           constraint_list_N[-1][1]-self.params.tol_obs,constraint_list_N[-1][2]+self.params.tol_obs])
-                if obs['type'] == 'box':
-                    constr_expr = floor_ee_dist(obs,self.t_glob)
+                if obs['type'] == 'plane':
+                    constr_expr = plane_ee_dist(obs,self.t_glob)
                     constraint_list_0.append([constr_expr,obs['bounds'][0] + self.params.ee_radius,obs['bounds'][1] - self.params.ee_radius])
                     constraint_list_1_N_minus_1.append(constraint_list_0[-1])
                     constraint_list_N.append(constraint_list_0[-1])

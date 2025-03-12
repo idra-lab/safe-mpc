@@ -81,7 +81,9 @@ obstacles:
       - [0,1,0,0]
       - [0,0,1,0]
       - [0,0,0,1]
+    perpendicular_axis: 2   # 0 for x, 1 for y, 2 for z
     bounds: [0,1e6]   # bounds: z position of floor and ceil
+    real_bound: 0     # 0 if lower, 1 if upper
 
   # - name: 'ball'
   #   type: 'sphere'
@@ -165,6 +167,7 @@ theta_rot_traj: [0,0,1.570]
 vel_max_traj: 0.65
 vel_const: false
 n_steps_tracking: 5000
+acc_time: 0.9    # percentage of time used to reach the maximum velocity tracking starting at rest
 
 noise_mass: 0.
 noise_inertia: 0.

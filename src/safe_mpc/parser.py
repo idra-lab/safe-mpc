@@ -192,6 +192,7 @@ class Parameters:
             self.theta_rot_traj = np.array(parameters['theta_rot_traj'])
             self.vel_max_traj = float(parameters['vel_max_traj'])
             self.vel_const = bool(parameters['vel_const'])
+            self.acc_time = float(parameters['acc_time'])
 
         self.noise_mass = float(parameters['noise_mass'])
         self.noise_inertia = float(parameters['noise_inertia'])

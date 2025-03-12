@@ -4,7 +4,8 @@ import numpy as np
 from scipy.stats import qmc
 from safe_mpc.parser import Parameters, parse_args
 from safe_mpc.env_model import AdamModel
-from safe_mpc.utils import get_ocp, RobotVisualizer
+from safe_mpc.utils import get_ocp
+from safe_mpc.robot_visualizer import RobotVisualizer
 from tqdm import tqdm
 from copy import deepcopy
 
