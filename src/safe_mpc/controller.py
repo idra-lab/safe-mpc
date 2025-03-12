@@ -291,13 +291,19 @@ class AbstractController:
             self.vel_traj = 0 if not(self.model.params.vel_const) else self.vel_max_traj
 
     def safeGuess(self, x, u, n_safe):
+        """
+        Function not more used. Its purpose was to see if the viable state can be actually reached
+        """
         for i in range(n_safe):
             x, _ = self.model.integrate(x, u[i])
             if not self.model.checkStateConstraints(x) or not self.checkCollision(x):
                 return False, None
-        return self.model.checkSafeConstraints(x), x
+        return True, x
     
     def guessCorrection(self):
+        """
+        Correct guess, integrating with the plant dynamics known by the controller (actually at the moment the real dynamics is used)
+        """
         x_sim = np.copy(self.x_guess)
         u_sim = np.copy(self.u_guess)
         for i in range(self.N):
@@ -423,7 +429,7 @@ class RecedingController(STWAController):
     def reset_controller(self):
         super().reset_controller()
         self.r = self.N
-        
+
     def step(self, x):
         # Terminal constraint
         self.ocp_solver.cost_set(self.N, 'zl', self.model.params.ws_t * np.ones((self.zl_e.size,)))

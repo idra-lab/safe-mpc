@@ -8,7 +8,7 @@ from .controller import *
 from .ocp import *
 from urdf_parser_py.urdf import URDF
 from .parser import Parameters, parse_args
-
+import xml.etree.ElementTree as ET
 
 args = parse_args()
 model_name = args['system']
@@ -75,6 +75,68 @@ def rot_mat_z(theta):
                      [np.sin(theta), np.cos(theta),0,0],
                      [0,0,1,0],
                      [0,0,0,1]])
+
+def casadi_segment_dist(A_s,B_s,C_s,D_s):
+
+        R = cs.sum1((B_s-A_s)*(D_s-C_s))
+        S1 = cs.sum1((B_s-A_s)*(C_s-A_s))
+        D1 = cs.sum1((B_s-A_s)**2)
+        S2 = cs.sum1((D_s-C_s)*(C_s-A_s))
+        D2 = cs.sum1((D_s-C_s)**2)
+
+        t = (S1*D2 - S2*R)/(D1*D2 - (R**2+1e-5))
+        t = cs.fmax(cs.fmin(t,1),0)
+
+        u = (t*R - S2)/D2
+        u = cs.fmax(cs.fmin(u,1),0)
+
+        t = (u*R + S1) / D1
+        t = cs.fmax(cs.fmin(t,1),0)
+
+        constr_expr = cs.sum1(((B_s-A_s)*t - (D_s-C_s)*u - (C_s-A_s))**2)
+
+        return constr_expr
+    
+def ball_segment_dist(A_s,B_s,capsule_length,obs_pos):
+    t = cs.fmin(cs.fmax(cs.dot((obs_pos-A_s),(B_s-A_s)) / (capsule_length**2),0),1)
+    d = cs.sum1((obs_pos-(A_s+(B_s-A_s)*t))**2) 
+    return d
+
+def ball_ee_dist(obs,ee_expr):
+    return (ee_expr - obs['position']).T @ (ee_expr - obs['position'])
+
+def floor_ee_dist(obs,ee_expr):
+    return ee_expr[2] - obs['bounds'][0]
+
+def randomize_model(urdf_file_path,noise_mass_percentage=0, noise_inertia_percentage=0, noise_cm_position_percentage=0):
+    inertia_fields = ['ixx','iyy','izz', 'ixy', 'iyz' , 'ixz']
+    # Load the URDF file
+    tree = ET.parse(urdf_file_path)
+    root = tree.getroot()
+    links = root.findall('link')
+    for link in links:
+        inertial = link.find('inertial')
+        if inertial is not None:
+            mass=inertial.find('mass')
+            noise = float(mass.get('value')) * noise_mass_percentage
+            new_mass = float(mass.get('value')) + np.random.uniform(-noise, noise)
+            mass.set('value', str(new_mass))
+            
+            inertia = inertial.find('inertia')
+            for i in inertia_fields:
+                noise =  abs(float(inertia.get(i))) * noise_inertia_percentage
+                new_inertia = float(inertia.get(i))+np.random.uniform(-noise, noise)
+                inertia.set(i,str(new_inertia))
+            
+            cm_pos = inertial.find('origin')
+            pos = list(map(float, cm_pos.get('xyz').split(' ')))
+            for e in pos:
+                noise = abs(e*noise_cm_position_percentage)
+                e += np.random.uniform(-noise, noise)
+            cm_pos.set('xyz', ' '.join(map(str, pos)))
+
+    # Write the modified URDF back to a file
+    tree.write(urdf_file_path[:-5] + '_randomized.urdf', encoding='utf-8', xml_declaration=True)
 
 ### VISUALIZER ###
 class RobotVisualizer:

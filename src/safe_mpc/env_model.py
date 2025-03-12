@@ -12,7 +12,7 @@ import torch.nn as nn
 import l4casadi as l4c
 from .safe_set import NetSafeSet, AnalyticSafeSet
 import xml.etree.ElementTree as ET
-from .utils import rot_mat_x,rot_mat_y,rot_mat_z
+from .utils import rot_mat_x,rot_mat_y,rot_mat_z, casadi_segment_dist,ball_segment_dist,ball_ee_dist,floor_ee_dist, randomize_model
 
 class AdamModel:
     def __init__(self, params):
@@ -31,7 +31,7 @@ class AdamModel:
 
         joint_names = [joint.name for joint in robot_joints]
 
-        self.randomize_model(params.robot_urdf, noise_mass_percentage = self.params.noise_mass , noise_inertia_percentage = self.params.noise_inertia, noise_cm_position_percentage = self.params.noise_cm)
+        randomize_model(params.robot_urdf, noise_mass_percentage = self.params.noise_mass , noise_inertia_percentage = self.params.noise_inertia, noise_cm_position_percentage = self.params.noise_cm)
 
         # Formal assumed model, used by controller
         self.kin_dyn = KinDynComputations(params.robot_urdf, joint_names, self.params.robot_descr.get_root())        
@@ -145,8 +145,8 @@ class AdamModel:
             capsule['end_points_fk'] = deepcopy([(T_capsule_points @ capsule['end_points'][0])[:3],
                                                  (T_capsule_points @ capsule['end_points'][1])[:3]])
             capsule['end_points_T_fun'] = deepcopy(cs.Function(f'fun_T_{n_cap}',[self.x],[T_capsule_points]))
-            capsule['end_points_fk_fun'] = deepcopy(cs.Function(f'fun_fk_{n_cap}',[self.x],[(T_capsule_points @ capsule['end_points'][0])[:3],
-                                                                                            (T_capsule_points @ capsule['end_points'][1])[:3]]))
+            capsule['end_points_fk_fun'] = deepcopy(cs.Function(f'fun_fk_{n_cap}',[self.x],[capsule['end_points_fk'][0][:3],
+                                                                                            capsule['end_points_fk'][1][:3]]))
             n_cap += 1
         for capsule in self.params.obst_capsules:
             capsule['index']=n_cap
@@ -154,7 +154,6 @@ class AdamModel:
             n_cap += 1
 
         self.NL_external = self.generate_NLconstraints_list()
-        #self.collisions_constr_fun = self.gen_collisions_constr_fun(self.NL_external[2])
 
     def jointToEE(self, x):
         return np.array(self.ee_fun(x))
@@ -188,13 +187,12 @@ class AdamModel:
     def integrate(self, x, u):
         x_next = np.zeros(self.nx)
         tau = np.array(self.tau_noisy_fun(x, u).T)
-        if not self.checkTorqueConstraints(tau):
-            # Cannot exceed the torque limits --> sat and compute forward dynamics on real system 
-            H_b = np.eye(4)
-            tau_sat = np.clip(tau, self.tau_min, self.tau_max)
-            M = np.array(self.mass_noisy(H_b, x[:self.nq])[6:, 6:])
-            h = np.array(self.bias_noisy(H_b, x[:self.nq], np.zeros(6), x[self.nq:])[6:])
-            u = np.linalg.solve(M, (tau_sat.T - h)).T
+        # Cannot exceed the torque limits --> sat and compute forward dynamics on real system 
+        H_b = np.eye(4)
+        tau_sat = np.clip(tau, self.tau_min, self.tau_max)
+        M = np.array(self.mass_noisy(H_b, x[:self.nq])[6:, 6:])
+        h = np.array(self.bias_noisy(H_b, x[:self.nq], np.zeros(6), x[self.nq:])[6:])
+        u = np.linalg.solve(M, (tau_sat.T - h)).T
         # x_next[:self.nq] = x[:self.nq] + self.params.dt * x[self.nq:] + 0.5 * self.params.dt**2 * u
         # x_next[self.nq:] = x[self.nq:] + self.params.dt * u
         x_next = np.array(self.f_fun(x,u)).squeeze()
@@ -216,38 +214,6 @@ class AdamModel:
                 return False
         return True
 
-    def casadi_segment_dist(self,A_s,B_s,C_s,D_s):
-
-        R = cs.sum1((B_s-A_s)*(D_s-C_s))
-        S1 = cs.sum1((B_s-A_s)*(C_s-A_s))
-        D1 = cs.sum1((B_s-A_s)**2)
-        S2 = cs.sum1((D_s-C_s)*(C_s-A_s))
-        D2 = cs.sum1((D_s-C_s)**2)
-
-        t = (S1*D2 - S2*R)/(D1*D2 - (R**2+1e-5))
-        t = cs.fmax(cs.fmin(t,1),0)
-
-        u = (t*R - S2)/D2
-        u = cs.fmax(cs.fmin(u,1),0)
-
-        t = (u*R + S1) / D1
-        t = cs.fmax(cs.fmin(t,1),0)
-
-        constr_expr = cs.sum1(((B_s-A_s)*t - (D_s-C_s)*u - (C_s-A_s))**2)
-
-        return constr_expr
-    
-    def ball_segment_dist(self,A_s,B_s,capsule_length,obs_pos):
-        t = cs.fmin(cs.fmax(cs.dot((obs_pos-A_s),(B_s-A_s)) / (capsule_length**2),0),1)
-        d = cs.sum1((obs_pos-(A_s+(B_s-A_s)*t))**2) 
-        return d
-    
-    def ball_ee_dist(self,obs):
-        return (self.t_glob - obs['position']).T @ (self.t_glob - obs['position'])
-    
-    def floor_ee_dist(self,obs):
-        return self.t_glob[2] - obs['bounds'][0]
-
     
     def generate_NLconstraints_list(self):
         """
@@ -260,93 +226,50 @@ class AdamModel:
         # generate also list of collision function for collision checks
         self.collisions_constr_fun = []
 
-        # dynamics always present
+        # torque limits constraints present
         constraint_list_0.append([self.tau,self.tau_min,self.tau_max])
         constraint_list_1_N_minus_1.append([self.tau,self.tau_min,self.tau_max])
 
         # collisions
-        if len(self.params.collisions_pairs)>0 and self.params.use_capsules:
+        if self.params.use_capsules:
             for i,pair in enumerate(self.params.collisions_pairs):
-                if pair['type'] == 0:
-                    constraint_list_0.append([self.casadi_segment_dist(*pair['elements'][0]['end_points_fk'],*pair['elements'][1]['end_points_fk']), \
+                if pair['type'] == 'capsule-capsule':
+                    constraint_list_0.append([casadi_segment_dist(*pair['elements'][0]['end_points_fk'],*pair['elements'][1]['end_points_fk']), \
                                             (pair['elements'][0]['radius']+pair['elements'][1]['radius'])**2,1e6])
-                    constraint_list_1_N_minus_1.append([self.casadi_segment_dist(*pair['elements'][0]['end_points_fk'],*pair['elements'][1]['end_points_fk']), \
-                                            (pair['elements'][0]['radius']+pair['elements'][1]['radius'])**2,1e6])
-                    constraint_list_N.append([self.casadi_segment_dist(*pair['elements'][0]['end_points_fk'],*pair['elements'][1]['end_points_fk']), \
-                                            (pair['elements'][0]['radius']+pair['elements'][1]['radius'])**2,1e6])
+                    constraint_list_1_N_minus_1.append(constraint_list_0[-1])
+                    constraint_list_N.append(constraint_list_0[-1])
                     self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}",[self.x],[constraint_list_N[-1][0]]), \
                                           constraint_list_N[-1][1]-self.params.tol_obs,constraint_list_N[-1][2]+self.params.tol_obs])
-                elif pair['type'] == 1:
-                    constraint_list_0.append([self.ball_segment_dist(*pair['elements'][0]['end_points_fk'],pair['elements'][0]['length'],pair['elements'][1]['position']), \
+                elif pair['type'] == 'capsule-sphere':
+                    constraint_list_0.append([ball_segment_dist(*pair['elements'][0]['end_points_fk'],pair['elements'][0]['length'],pair['elements'][1]['position']), \
                                             (pair['elements'][1]['radius']+pair['elements'][0]['radius'])**2,1e6])
-                    constraint_list_1_N_minus_1.append([self.ball_segment_dist(*pair['elements'][0]['end_points_fk'],pair['elements'][0]['length'],pair['elements'][1]['position']), \
-                                            (pair['elements'][1]['radius']+pair['elements'][0]['radius'])**2,1e6])
-                    constraint_list_N.append([self.ball_segment_dist(*pair['elements'][0]['end_points_fk'],pair['elements'][0]['length'],pair['elements'][1]['position']), \
-                                            (pair['elements'][1]['radius']+pair['elements'][0]['radius'])**2,1e6])
+                    constraint_list_1_N_minus_1.append(constraint_list_0[-1])
+                    constraint_list_N.append(constraint_list_0[-1])
                     self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}",[self.x],[constraint_list_N[-1][0]]), \
                                           constraint_list_N[-1][1]-self.params.tol_obs,constraint_list_N[-1][2]+self.params.tol_obs])
-                elif pair['type'] == 2:
+                elif pair['type'] == 'capsule-plane':
                     for point in pair['elements'][0]['end_points_fk']:
                         constraint_list_0.append([point[2],pair['elements'][1]['bounds'][0]+pair['elements'][0]['radius'],pair['elements'][1]['bounds'][1]-pair['elements'][0]['radius']])
-                        constraint_list_1_N_minus_1.append([point[2],pair['elements'][1]['bounds'][0]+pair['elements'][0]['radius'],pair['elements'][1]['bounds'][1]-pair['elements'][0]['radius']])
-                        constraint_list_N.append([point[2],pair['elements'][1]['bounds'][0]+pair['elements'][0]['radius'],pair['elements'][1]['bounds'][1]-pair['elements'][0]['radius']])
+                        constraint_list_1_N_minus_1.append(constraint_list_0[-1])
+                        constraint_list_N.append(constraint_list_0[-1])
                         self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}",[self.x],[constraint_list_N[-1][0]]), \
                                           constraint_list_N[-1][1]-self.params.tol_obs,constraint_list_N[-1][2]+self.params.tol_obs])
         
-        elif len(self.params.obstacles)>0:
+        else:
             for i,obs in enumerate(self.params.obstacles):
                 if obs['type'] == 'sphere':
-                    constr_expr = self.ball_ee_dist(obs)
+                    constr_expr = ball_ee_dist(obs,self.t_glob)
                     constraint_list_0.append([constr_expr, (self.params.ee_radius+obs['radius'])**2,1e6])
-                    constraint_list_1_N_minus_1.append([constr_expr, (self.params.ee_radius+obs['radius'])**2,1e6])
-                    constraint_list_N.append([constr_expr,(self.params.ee_radius+obs['radius'])**2,1e6])
+                    constraint_list_1_N_minus_1.append(constraint_list_0[-1])
+                    constraint_list_N.append(constraint_list_0[-1])
                     self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}",[self.x],[constraint_list_N[-1][0]]), \
                                           constraint_list_N[-1][1]-self.params.tol_obs,constraint_list_N[-1][2]+self.params.tol_obs])
                 if obs['type'] == 'box':
-                    constr_expr = self.floor_ee_dist(obs)
+                    constr_expr = floor_ee_dist(obs,self.t_glob)
                     constraint_list_0.append([constr_expr,obs['bounds'][0] + self.params.ee_radius,obs['bounds'][1] - self.params.ee_radius])
-                    constraint_list_1_N_minus_1.append([constr_expr,obs['bounds'][0] + self.params.ee_radius,obs['bounds'][1] - self.params.ee_radius])
-                    constraint_list_N.append([constr_expr,obs['bounds'][0] + self.params.ee_radius,obs['bounds'][1] - self.params.ee_radius])
+                    constraint_list_1_N_minus_1.append(constraint_list_0[-1])
+                    constraint_list_N.append(constraint_list_0[-1])
                     self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}",[self.x],[constraint_list_N[-1][0]]), \
                                           constraint_list_N[-1][1]-self.params.tol_obs,constraint_list_N[-1][2]+self.params.tol_obs])
-                
-
 
         return constraint_list_0,constraint_list_1_N_minus_1,constraint_list_N
-
-    def gen_collisions_constr_fun(self,constraint_list):
-        fun_list = []
-        for i,constr in enumerate(constraint_list):
-             fun_list.append([cs.Function(f"collision_constraint_{i}",[self.x],[constr[0]]), \
-                                          constr[1]-self.params.tol_obs,constr[2]+self.params.tol_obs])
-        return fun_list
-    
-    def randomize_model(self,urdf_file_path,noise_mass_percentage=0, noise_inertia_percentage=0, noise_cm_position_percentage=0):
-        inertia_fields = ['ixx','iyy','izz', 'ixy', 'iyz' , 'ixz']
-        # Load the URDF file
-        tree = ET.parse(urdf_file_path)
-        root = tree.getroot()
-        links = root.findall('link')
-        for link in links:
-            inertial = link.find('inertial')
-            if inertial is not None:
-                mass=inertial.find('mass')
-                noise = float(mass.get('value')) * noise_mass_percentage
-                new_mass = float(mass.get('value')) + np.random.uniform(-noise, noise)
-                mass.set('value', str(new_mass))
-                
-                inertia = inertial.find('inertia')
-                for i in inertia_fields:
-                    noise =  abs(float(inertia.get(i))) * noise_inertia_percentage
-                    new_inertia = float(inertia.get(i))+np.random.uniform(-noise, noise)
-                    inertia.set(i,str(new_inertia))
-                
-                cm_pos = inertial.find('origin')
-                pos = list(map(float, cm_pos.get('xyz').split(' ')))
-                for e in pos:
-                    noise = abs(e*noise_cm_position_percentage)
-                    e += np.random.uniform(-noise, noise)
-                cm_pos.set('xyz', ' '.join(map(str, pos)))
-
-        # Write the modified URDF back to a file
-        tree.write(urdf_file_path[:-5] + '_randomized.urdf', encoding='utf-8', xml_declaration=True)

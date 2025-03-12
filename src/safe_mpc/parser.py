@@ -251,12 +251,12 @@ class Parameters:
             if obj2_name == capsule['name']:
                 pair['elements'][1] = capsule
                 if pair['elements'][0] != None:
-                    pair['type'] = 0
+                    pair['type'] = 'capsule-capsule'
                 break 
         for obstacle in obstacles_list:
             if obj2_name == obstacle['name']:
                 pair['elements'][1] = obstacle
-                if (pair['elements'][0] != None and obstacle['type'] == 'sphere'): pair['type'] = 1
-                elif (pair['elements'][0] != None and obstacle['type'] == 'box'): pair['type'] = 2
+                if (pair['elements'][0] != None and obstacle['type'] == 'sphere'): pair['type'] = 'capsule-sphere'
+                elif (pair['elements'][0] != None and obstacle['type'] == 'box'): pair['type'] = 'capsule-plane'
                 break 
         return pair
