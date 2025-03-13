@@ -28,9 +28,11 @@ class NaiveOCP:
 
         opti.subject_to(X[0] == x_init)
         
-        Q = self.params.Q
+        Q_trasl = self.params.Q_trasl
+        Q_rot = self.params.Q_rot
         R = self.params.R * np.eye(self.model.nu)
         ee_ref = model.ee_ref
+        R_ref = model.R_ref
         dist_b = []
 
         # Capsules end-points forward kinematics
@@ -77,8 +79,8 @@ class NaiveOCP:
                 
             ee_pos = model.ee_fun(X[k])
             ee_rot = model.ee_rot(X[k])
-            cost += (ee_pos - ee_ref).T @ Q @ (ee_pos - ee_ref)
-            # cost += cs.trace((np.eye(3) - ee_rot) @ Q)
+            cost += (ee_pos - ee_ref).T @ Q_trasl @ (ee_pos - ee_ref)
+            cost += cs.trace((np.eye(3) - R_ref.T @ ee_rot) @ Q_rot)
 
             if k < N:
                 cost += U[k].T @ R @ U[k]
@@ -211,11 +213,11 @@ class HardTerminalOCP(NaiveOCP):
         self.opti.subject_to(self.model.nn_func(self.X[-1], self.params.alpha) >= 0.)
         nq = self.model.nq
         nn_dofs = self.params.nn_dofs
-        if nq > nn_dofs:
-            x_middle = (self.model.x_min[nn_dofs:nq] \
-                        + self.model.x_max[nn_dofs:nq]) / 2
-            self.opti.subject_to(self.X[-1][nn_dofs:nq] == x_middle)
-            self.opti.subject_to(self.X[-1][nq + nn_dofs:] == 0.)
+        # if nq > nn_dofs:
+        #     # x_middle = (self.model.x_min[nn_dofs:nq] \
+        #     #             + self.model.x_max[nn_dofs:nq]) / 2
+        #     # self.opti.subject_to(self.X[-1][nn_dofs:nq] == x_middle)
+        #     self.opti.subject_to(self.X[-1][nq + nn_dofs:] == 0.)
 
 
 class SoftTerminalOCP(NaiveOCP):

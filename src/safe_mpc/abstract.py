@@ -125,6 +125,7 @@ class AdamModel:
 
         # EE target
         self.ee_ref = self.jointToEE(np.zeros(self.nx))
+        self.R_ref = np.eye(3)
 
         # NN model (viability constraint)
         self.l4c_model = None
@@ -292,7 +293,8 @@ class AbstractController:
         self.ocp.model = self.model.amodel
 
         # Cost
-        self.Q = self.params.Q
+        self.Q_trasl = self.params.Q_trasl
+        self.Q_rot = self.params.Q_rot
         self.R = self.params.R * np.eye(self.model.nu) 
 
         self.ocp.cost.cost_type = 'EXTERNAL'
@@ -301,12 +303,13 @@ class AbstractController:
         # Tras
         t_glob = self.model.t_glob
         delta = t_glob - self.model.p[:3]
-        track_ee = delta.T @ self.Q @ delta 
+        track_ee = delta.T @ self.Q_trasl @ delta 
         # Rot
         T_ee = self.model.fk(np.eye(4), self.model.x[:self.model.nq])
+        rot_ee = cs.trace((np.eye(3) - model.R_ref.T @ T_ee[:3, :3]) @ self.Q_rot)
 
-        self.ocp.model.cost_expr_ext_cost = track_ee + self.model.u.T @ self.R @ self.model.u #+ cs.trace((np.eye(3) - T_ee[:3,:3]) @ self.Q)
-        self.ocp.model.cost_expr_ext_cost_e = track_ee #+ cs.trace((np.eye(3) - T_ee[:3,:3]) @ self.Q)
+        self.ocp.model.cost_expr_ext_cost = track_ee + self.model.u.T @ self.R @ self.model.u + rot_ee
+        self.ocp.model.cost_expr_ext_cost_e = track_ee + rot_ee
         self.ocp.parameter_values = np.hstack([self.model.ee_ref, [self.params.alpha, 1.]])
 
         # Capsules end-points forward kinematics
@@ -510,16 +513,16 @@ class AbstractController:
 
         nq = self.model.nq
         nn_dofs = self.params.nn_dofs
-        if nq > nn_dofs:
-            # Terminal constraint -> middle joint position, zero velocity
-            x_middle = (self.model.x_min[nn_dofs:nq] \
-                        + self.model.x_max[nn_dofs:nq]) / 2
-            self.ocp.constraints.lbx_e[nn_dofs:nq] = x_middle
-            self.ocp.constraints.ubx_e[nn_dofs:nq] = x_middle
+        # if nq > nn_dofs:
+        #     # Terminal constraint -> middle joint position, zero velocity
+        #     # x_middle = (self.model.x_min[nn_dofs:nq] \
+        #     #             + self.model.x_max[nn_dofs:nq]) / 2
+        #     # self.ocp.constraints.lbx_e[nn_dofs:nq] = x_middle
+        #     # self.ocp.constraints.ubx_e[nn_dofs:nq] = x_middle
 
-            self.ocp.constraints.lbx_e[nq + nn_dofs:] = np.zeros(nq - nn_dofs)
-            self.ocp.constraints.ubx_e[nq + nn_dofs:] = np.zeros(nq - nn_dofs)
-            # TODO: may add these also to the soft constraint?
+        #     self.ocp.constraints.lbx_e[nq + nn_dofs:] = np.zeros(nq - nn_dofs)
+        #     self.ocp.constraints.ubx_e[nq + nn_dofs:] = np.zeros(nq - nn_dofs)
+        #     # TODO: may add these also to the soft constraint?
 
         if soft:
             self.ocp.constraints.idxsh_e = np.array([num_nl_e])
@@ -547,8 +550,8 @@ class AbstractController:
         nn_dofs = self.params.nn_dofs
         if nq > nn_dofs:
             # Terminal constraint -> middle joint position, zero velocity
-            self.x_middle = (self.model.x_min[nn_dofs:nq] \
-                            + self.model.x_max[nn_dofs:nq]) / 2
+            # self.x_middle = (self.model.x_min[nn_dofs:nq] \
+            #                 + self.model.x_max[nn_dofs:nq]) / 2
             self.x_zerovel = np.zeros(nq - nn_dofs)
 
         if soft:
