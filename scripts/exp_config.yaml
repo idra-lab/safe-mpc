@@ -1,44 +1,43 @@
 test_num: 100             # number of tests
-n_steps: 800              # number of time steps in each test
+n_steps: 2000              # number of time steps in each test
 cpu_num: 24
 
-N: 30                     # horizon length --> 45 for z1 
+N: 35                     # horizon length --> 45 for z1 
 dt: 1e-2                  # time step
-alpha: 12.                # safety margin 
+alpha: 40.                # safety margin 
 nn_dofs: 5                # number of DoFs considered in the NN
 
-solver_mode: 'BALANCE'    # HPIPM mode, can be --> 'BALANCE', 'ROBUST', 'SPEED', 'SPEED_ABS'
+solver_mode: 'BALANCE'     # HPIPM mode, can be --> 'BALANCE', 'ROBUST', 'SPEED', 'SPEED_ABS'
 nlp_max_iter: 500
 rti_iter: 100
 qp_max_iter: 200
 alpha_reduction: 0.3
 alpha_min: 1e-2
 levenberg_marquardt: 1e0  # 1e-3 in general, 1e-1 for z1 guess, 1e0 for z1 mpc
-ext_flag: '-O2'
+ext_flag: '-O3'
 
 Q_trasl:                  # ee translation cost
   - [100, 0., 0.]
   - [0., 100, 0.]
   - [0., 0., 100]
 Q_rot:                    # ee rotation cost
-  - [0., 0., 0.]
-  - [0., 0., 0.]
-  - [0., 0., 0.]
+  - [1, 0., 0.]
+  - [0., 1, 0.]
+  - [0., 0., 1]
 R: 5e-3                   # torque cost
-  
 
-tol_x: 5e-3               # state -4
+tol_x: 1e-4               # state -4
 tol_tau: 1e-6             # torque
 tol_dyn: 1e-6             # dynamics
-tol_obs: 1e-4             # obstacle tolerance -6
+tol_obs: 5e-3             # obstacle tolerance -6
 tol_nn: 1e-4              # neural network -6
 
 eps: 1e-6                 # for numerical stability in NN function 
-tol_conv: 5e-3            # convergence tolerance for the task
+tol_conv: 1e-3            # convergence tolerance for the task
 tol_cost: 1e-3            # Tolerance for the cost
 
 q_dot_gain: 1e4
-ws_t: 1e2
+ws_t: 1e4
 ws_r: 1e4
 
 obs_flag: true           # activation of Cartesian constraints

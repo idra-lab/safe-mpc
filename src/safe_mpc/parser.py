@@ -71,7 +71,8 @@ class Parameters:
         self.tol_obs = float(parameters['tol_obs'])
         self.tol_nn = float(parameters['tol_nn'])
 
-        self.Q = np.array(parameters['Q'])
+        self.Q_trasl = np.array(parameters['Q_trasl'])
+        self.Q_rot = np.array(parameters['Q_rot'])
         self.R = float(parameters['R'])         # eye(nu) * R
         self.eps = float(parameters['eps'])
         self.tol_conv = float(parameters['tol_conv'])
