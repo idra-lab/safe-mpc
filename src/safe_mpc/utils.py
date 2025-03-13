@@ -2,12 +2,37 @@ import time
 import copy
 import meshcat
 import numpy as np
+import matplotlib.pyplot as plt
 import pinocchio as pin
 from .abstract import AbstractController
 from .controller import *
 from .ocp import *
 from urdf_parser_py.urdf import URDF
 from .parser import Parameters, parse_args
+
+
+CUSTOM_PARAMS = {
+    'pdf.fonttype': 42,
+    'ps.fonttype': 42,
+    'lines.linewidth': 6,
+    'lines.markersize': 12,
+    'patch.linewidth': 2,
+    'axes.grid': True,
+    'axes.labelsize': 35,
+    'font.family': 'serif',
+    'font.size': 30,
+    'text.usetex': True,
+    'legend.fontsize': 20,
+    'legend.loc': 'best',
+    'figure.figsize': (10, 7),
+    'figure.facecolor': 'white',
+    'grid.linestyle': '-',
+    'grid.alpha': 0.7,
+    'savefig.format': 'pdf'
+}
+
+def apply_rc_params():
+    plt.rcParams.update(CUSTOM_PARAMS)
 
 
 args = parse_args()
@@ -96,8 +121,15 @@ def assign_pairs(obj1_name,obj2_name,obstacles_list,capsules_list):
 
 ### OBSTACLES ###
 ee_radius = 0.05
-# ee_ref = np.array([0.6, 0.28, 0.078])
-ee_ref = np.array([0.7, 0., 0.078])
+ee_ref = np.array([0.6, 0.0, 0.498])
+# R_ref = np.eye(3)
+# Rotation of 90 degrees around the x-axis
+R_ref = np.array([
+    [1, 0, 0],
+    [0, 0, -1],
+    [0, 1, 0]
+])
+# ee_ref = np.array([0.7, 0., 0.078])
 # ee_ref = np.array([0.5, -0.2, 0.078])
 
 obs = dict()
@@ -158,8 +190,8 @@ def get_ocp(ocp_name, model, obstacles, capsule, capsule_pairs) -> NaiveOCP:
              'zerovel': TerminalZeroVelOCP,
              'st': SoftTerminalOCP,
              'htwa': HardTerminalOCP,
-             'receding': SoftTerminalOCP, 
-             'real': SoftTerminalOCP}
+             'receding': HardTerminalOCP, 
+             'real': HardTerminalOCP}
     if ocp_name in ocps:
         return ocps[ocp_name](model, obstacles, capsule, capsule_pairs)
     else:
