@@ -21,7 +21,6 @@ nq = model.nq
 
 cont_name = args['controller']
 controller = get_controller(cont_name, model, obstacles, capsules, capsule_pairs)
-params.solver_type = 'SQP'
 safe_ocp = SafeBackupController(model, obstacles, capsules, capsule_pairs)
 horizon = args['horizon']
 controller.resetHorizon(horizon)

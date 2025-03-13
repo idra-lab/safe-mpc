@@ -20,7 +20,6 @@ for cont in controllers:
     del controller
 
 print('\n*** Building SAFE BACKUP controller *** \n')
-params.solver_type = 'SQP'
 safe_ocp = SafeBackupController(model, obstacles, capsules, capsule_pairs)
 
 print('DONE!')
