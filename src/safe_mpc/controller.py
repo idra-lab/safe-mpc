@@ -116,11 +116,11 @@ class RecedingController(STWAController):
         if self.model.nq > self.params.nn_dofs:
             lbx_r, ubx_r = np.copy(self.ocp.constraints.lbx), np.copy(self.ocp.constraints.ubx)
 
-            lbx_r[self.params.nn_dofs:self.model.nq] = self.x_middle
-            ubx_r[self.params.nn_dofs:self.model.nq] = self.x_middle
+            # lbx_r[self.params.nn_dofs:self.model.nq] = self.x_middle
+            # ubx_r[self.params.nn_dofs:self.model.nq] = self.x_middle
 
-            lbx_r[self.model.nq + self.params.nn_dofs] = self.x_zerovel
-            ubx_r[self.model.nq + self.params.nn_dofs] = self.x_zerovel
+            lbx_r[self.model.nq + self.params.nn_dofs:] = self.x_zerovel
+            ubx_r[self.model.nq + self.params.nn_dofs:] = self.x_zerovel
 
             self.ocp_solver.constraints_set(self.r, "lbx", lbx_r)
             self.ocp_solver.constraints_set(self.r, "ubx", ubx_r)
@@ -131,8 +131,11 @@ class RecedingController(STWAController):
                 if self.model.nq > self.params.nn_dofs:
                     self.ocp_solver.constraints_set(i, "lbx", self.model.x_min)
                     self.ocp_solver.constraints_set(i, "ubx", self.model.x_max)
+        # Update also the terminal parameter (needed for updates in ee_ref), NN must be active (p[4] = 1.)
+        self.ocp_solver.set(self.N, "p", np.hstack([self.model.ee_ref, [self.params.alpha, 1.]]))
         # Solve the OCP
         status = self.solve(x)
+        self.last_status = status
 
         if self.abort_flag:
             self.r -= 1          
@@ -146,8 +149,8 @@ class RecedingController(STWAController):
             self.r = self.N
             return self.u_guess[0], True
 
-        if status == 0 and self.model.checkStateConstraints(self.x_temp)  \
-                and np.all([self.checkCollision(x) for x in self.x_temp]):
+        if status == 0 and self.model.checkStateConstraints(self.x_temp):#  \
+               # and np.all([self.checkCollision(x) for x in self.x_temp]):
             self.fails = 0
             for i in range(self.r + 2, self.N + 1):
                 if self.model.checkSafeConstraints(self.x_temp[i]):
