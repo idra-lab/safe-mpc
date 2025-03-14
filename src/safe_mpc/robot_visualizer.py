@@ -67,7 +67,7 @@ class RobotVisualizer:
                 T_obs = np.eye(4)
                 T_obs[:3, 3] = obs['position']
                 self.viz.viewer['world/obstacle/' + obs['name']].set_transform(T_obs)
-            elif obs['type'] == 'sphere':
+            elif obs['type'] == 'sphere-obs':
                 sphere = meshcat.geometry.Sphere(obs['radius'])
                 self.viz.viewer['world/obstacle/' + obs['name']].set_object(sphere)
                 self.viz.viewer['world/obstacle/' + obs['name']].set_property('color', list(obs['color']))
@@ -116,6 +116,21 @@ class RobotVisualizer:
             T_Tmp[:3,3] = capsule['end_points'][1]
             self.viz.viewer[f'world/obstacle/sphere2{capsule["index"]}'].set_transform(T_Tmp)
 
+    def init_spheres(self,spheres):
+        for sphere in spheres:
+            sphere1 = meshcat.geometry.Sphere(sphere['radius'])
+            self.viz.viewer[f'world/robot/sphere1{sphere["index"]}'].set_object(sphere1)
+            self.viz.viewer[f'world/robot/sphere1{sphere["index"]}'].set_property('color', sphere['color'])
+            self.viz.viewer[f'world/robot/sphere1{sphere["index"]}'].set_property('visible', False)
+            self.viz.viewer[f'world/robot/sphere1{sphere["index"]}'].set_transform(np.eye(4))
+    
+    def render_sphere(self,q,sphere):
+        T_mat = np.eye(4)
+        self.viz.viewer[f'world/robot/sphere1{sphere["index"]}'].set_property('visible', True)
+        T_mat[:3,3] = np.array(sphere['fk_fun'](q)).squeeze()
+        self.viz.viewer[f'world/robot/sphere1{sphere["index"]}'].set_transform(T_mat)
+
+
     def display(self, q):
         self.viz.display(q)
         time.sleep(self.params.dt)
@@ -131,11 +146,13 @@ class RobotVisualizer:
         res[:3,3]= (res @ vec)[:3] 
         return res
 
-    def displayWithEESphere(self, q, capsules):
+    def displayWithEESphere(self, q, capsules,spheres):
         self.viz.display(q)
         q = np.hstack((q,np.zeros(q.shape[0])))
         for capsule in capsules:
             self.render_capsule(q,capsule)
+        for sphere in spheres:
+            self.render_sphere(q,sphere)
 
     def addTraj(self,points):
         for i in range(points.shape[1]):

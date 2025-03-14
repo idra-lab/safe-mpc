@@ -6,10 +6,13 @@ from acados_template import AcadosOcp, AcadosOcpSolver
 from copy import deepcopy
 import casadi as cs
 import sympy as sym
+from .safe_set import NetSafeSet, AnalyticSafeSet
+
 
 class AbstractController:
     def __init__(self, model):
         self.model = model
+        self.current_step = 0
 
         self.N = self.model.params.N
         self.ocp = AcadosOcp()
@@ -20,19 +23,33 @@ class AbstractController:
 
         # Model
         self.ocp.model = self.model.amodel
+        self.p = cs.MX.sym("p", 5)     #  p[0:3] -> EE reference (where you want to move the EE), p[3] -> Safety margin for the NN model in percentage ex (10% defined as 10), p[4] -> logic variable: 1 to activate the safe set constraint, -1 to deactivate it
+        self.ocp.model.p = self.p
+        self.create_safe_set()
 
         # Cost
-        self.Q = self.model.params.Q if not(self.model.params.track_traj) else 5e2 * np.eye(3)
-        self.R = self.model.params.R * np.eye(self.model.nu) 
-
+        
         self.ocp.cost.cost_type = 'EXTERNAL'
         self.ocp.cost.cost_type_e = 'EXTERNAL'
 
         t_glob = self.model.t_glob
-        delta = t_glob - self.model.p[:3]    #self.model.ee_ref
-        track_ee = delta.T @ self.Q @ delta 
-        self.ocp.model.cost_expr_ext_cost = track_ee + self.model.u.T @ self.R @ self.model.u if not(self.model.params.track_traj) else track_ee
+        delta = t_glob - self.p[:3]    #self.model.ee_ref
+        track_ee = delta.T @ (self.model.params.Q_weight * np.eye(3)) @ delta 
+        self.ocp.model.cost_expr_ext_cost = track_ee + self.model.u.T @ (self.model.params.R_weight * np.eye(self.model.nu)) @ self.model.u if not(self.model.params.track_traj) else track_ee
         self.ocp.model.cost_expr_ext_cost_e = track_ee
+        
+        # self.ocp.model.cost_y_expr_0 = cs.vertcat(self.model.t_glob,self.model.u)
+        # self.ocp.cost.W_0 = lin.block_diag(self.model.params.Q_weight*np.eye(self.model.t_glob.shape[0]),self.model.params.R_weight*np.eye(self.model.nu))
+        # self.ocp.cost.yref_0 = np.hstack((self.model.ee_ref, np.zeros(self.model.nu)))#
+
+        # self.ocp.model.cost_y_expr = self.ocp.model.cost_y_expr_0
+        # self.ocp.cost.W = self.ocp.cost.W_0 
+        # self.ocp.cost.yref = self.ocp.cost.yref_0  #np.vstack((self.model.p[:3], np.zeros(self.model.nu))) 
+
+        # self.ocp.model.cost_y_expr_e = self.model.t_glob
+        # self.ocp.cost.W_e = self.model.params.Q_weight*np.eye(self.model.t_glob.shape[0])
+        # self.ocp.cost.yref_e = self.model.ee_ref #np.zeros((self.model.t_glob.shape[0],))#self.model.p[:3] 
+        
         self.ocp.parameter_values = np.hstack([self.model.ee_ref, [self.model.params.alpha, 1.]])
 
         # Bound constraints
@@ -47,7 +64,7 @@ class AbstractController:
         self.ocp.constraints.lbx_e = self.model.x_min
         self.ocp.constraints.ubx_e = self.model.x_max
         self.ocp.constraints.idxbx_e = np.arange(self.model.nx)
-        
+
         # Nonlinear constraints
         self.nl_con_0, self.nl_con, self.nl_con_e = self.model.NL_external
         self.idxhs_0,self.idxhs,self.idxhs_e = np.zeros(0),np.zeros(0),np.zeros(0)
@@ -93,7 +110,7 @@ class AbstractController:
         self.ocp.solver_options.ext_fun_compile_flags = self.model.params.ext_flag
 
         self.reset_controller()
-        self.ocp_name = "".join(re.findall('[A-Z][^A-Z]*', self.__class__.__name__)[:-1]).lower() + self.model.params.solver_type + self.model.net_name
+        self.ocp_name = "".join(re.findall('[A-Z][^A-Z]*', self.__class__.__name__)[:-1]).lower() + self.model.params.solver_type + self.net_name
         gen_name = self.model.params.GEN_DIR + 'ocp_' + self.ocp_name + '_' + self.model.amodel.name
         self.ocp.code_export_directory = gen_name
         self.ocp_solver = AcadosOcpSolver(self.ocp, json_file=gen_name + '.json', build=self.model.params.build)
@@ -136,6 +153,12 @@ class AbstractController:
             self.vel_traj = self.vel_max_traj if self.model.params.vel_const else 0
 
             self.generate_trajectory(self.vel_traj)
+
+    def checkSafeConstraints(self, x):
+        return self.safe_set.check_constraint(x) 
+    
+    def create_safe_set(self):
+        pass
 
     def generate_trajectory(self,velocity):
         traj = np.zeros((3,self.N+1))
@@ -264,7 +287,8 @@ class AbstractController:
     def reset_controller(self):
         self.fails = 0
         self.model.params.use_net = None
-        self.model.net_name = ''
+        self.net_name = ''
+        self.current_step = 0
 
 class NaiveController(AbstractController):
     def __init__(self, model):
@@ -316,19 +340,29 @@ class STController(NaiveController):
     def __init__(self, model):
         super().__init__(model)
 
+    def create_safe_set(self):
+        # Analytic or network set
+        if self.model.params.use_net == True:
+            self.safe_set = NetSafeSet(self.model,self.p,3)
+            self.net_name = '_net'
+        elif self.model.params.use_net == False: 
+            self.safe_set = AnalyticSafeSet(self.model,self.p)
+            self.net_name = 'analytic_set'
+
     def terminalSetConstraint(self, soft=True):
+        from .utils import casadi_if_else
         # Get the actual number of nl_constraints --> will be the index for the soft constraint
         num_nl_e = np.sum([c[0].shape[0] for c in self.nl_con_e])
-        safe_set_constraints = self.model.safe_set.get_constraints()
-        bounds = self.model.safe_set.get_bounds()
+        safe_set_constraints = self.safe_set.get_constraints()
+        bounds = self.safe_set.get_bounds()
         constraint_num = 0
         for i, constr in enumerate(safe_set_constraints):
-            self.nl_con_e.append([constr,bounds[i][0],bounds[i][1]])
+            self.nl_con_e.append([casadi_if_else(self.p[3],constr,bounds[i]),bounds[i][0],bounds[i][1]])
             constraint_num += constr.shape[0]
 
         if self.model.params.use_net:
-            self.ocp.solver_options.model_external_shared_lib_dir = self.model.safe_set.l4c_model.shared_lib_dir
-            self.ocp.solver_options.model_external_shared_lib_name = self.model.safe_set.l4c_model.name
+            self.ocp.solver_options.model_external_shared_lib_dir = self.safe_set.l4c_model.shared_lib_dir
+            self.ocp.solver_options.model_external_shared_lib_name = self.safe_set.l4c_model.name
 
         if soft:
             self.idxhs_e = np.hstack((self.idxhs_e,np.arange(num_nl_e, num_nl_e + constraint_num)))
@@ -342,6 +376,7 @@ class STController(NaiveController):
         self.terminalSetConstraint()
 
     def reset_controller(self):
+        self.current_step = 0
         self.fails = 0
         
 
@@ -353,7 +388,7 @@ class STWAController(STController):
     def checkGuess(self):
         return self.model.checkRunningConstraints(self.x_temp, self.u_temp) and \
                self.model.checkDynamicsConstraints(self.x_temp, self.u_temp) and \
-               self.model.checkSafeConstraints(self.x_temp[-1]) and \
+               self.checkSafeConstraints(self.x_temp[-1]) and \
                np.all([self.model.checkCollision(x) for x in self.x_temp])
 
     def step(self, x):
@@ -390,18 +425,19 @@ class RecedingController(STWAController):
         self.abort_flag = self.model.params.abort_flag
 
     def runningSetConstraint(self, soft=True):
+        from .utils import casadi_if_else
         # Suppose that the NN model is already set (same for external model shared lib)
         num_nl = np.sum([c[0].shape[0] for c in self.nl_con])
-        safe_set_constraints = self.model.safe_set.get_constraints()
-        bounds = self.model.safe_set.get_bounds()
+        safe_set_constraints = self.safe_set.get_constraints()
+        bounds = self.safe_set.get_bounds()
         constraint_num = 0
         for i, constr in enumerate(safe_set_constraints):
-            self.nl_con.append([constr,bounds[i][0],bounds[i][1]])
+            self.nl_con_e.append([casadi_if_else(self.p[3],constr,bounds[i]),bounds[i][0],bounds[i][1]])
             constraint_num += constr.shape[0]
 
         if self.model.params.use_net:
-            self.ocp.solver_options.model_external_shared_lib_dir = self.model.safe_set.l4c_model.shared_lib_dir
-            self.ocp.solver_options.model_external_shared_lib_name = self.model.safe_set.l4c_model.name
+            self.ocp.solver_options.model_external_shared_lib_dir = self.safe_set.l4c_model.shared_lib_dir
+            self.ocp.solver_options.model_external_shared_lib_name = self.safe_set.l4c_model.name
 
         if soft:
             self.idxhs = np.hstack((self.idxhs,np.arange(num_nl, num_nl + constraint_num)))
@@ -424,16 +460,19 @@ class RecedingController(STWAController):
     def step(self, x):
         # Terminal constraint
         self.ocp_solver.cost_set(self.N, 'zl', self.model.params.ws_t * np.ones((self.zl_e.size,)))
+        self.ocp_solver.cost_set(self.N, 'zu', self.model.params.ws_t * np.ones((self.zl_e.size,)))
         self.ocp_solver.set(self.N, "p", np.hstack([self.model.ee_ref, [self.model.params.alpha, 1.]]))
         
         # Receding constraint
         if self.r < self.N:
             self.ocp_solver.cost_set(self.r, 'zl', self.model.params.ws_r * np.ones((self.zl.size,)))
+            self.ocp_solver.cost_set(self.r, 'zu', self.model.params.ws_r * np.ones((self.zl.size,)))
             self.ocp_solver.set(self.r, "p", np.hstack([self.model.ee_ref, [self.model.params.alpha, 1.]]))
         for i in range(1,self.N):
             if i != self.r:
                 # No constraints on other running states
                 self.ocp_solver.cost_set(i,'zl', np.zeros((self.zl.size,)))
+                self.ocp_solver.cost_set(i,'zu', np.zeros((self.zl.size,)))
                 # self.ocp_solver.constraints_set(i, "lh", lh)
                 self.ocp_solver.set(i, "p", np.hstack([self.model.ee_ref, [self.model.params.alpha, -1.]]))
         # Solve the OCP
@@ -454,7 +493,7 @@ class RecedingController(STWAController):
         if status == 0 and self.model.checkStateConstraints(self.x_temp) :
             self.fails = 0
             for i in range(self.r + 2, self.N + 1):
-                if self.model.checkSafeConstraints(self.x_temp[i]):
+                if self.checkSafeConstraints(self.x_temp[i]):
                     self.r = i - 1
         else:
             self.fails += 1
@@ -507,7 +546,7 @@ class RecedingEquality(STWAController):
                 and np.all([self.checkCollision(x) for x in self.x_temp]):
             self.fails = 0
             for i in range(self.r + 2, self.N + 1):
-                if self.model.checkSafeConstraints(self.x_temp[i]):
+                if self.checkSafeConstraints(self.x_temp[i]):
                     self.r = i - 1
                     self.x_viable = np.copy(self.x_temp[i])
         else:
@@ -529,17 +568,19 @@ class ParallelController(RecedingController):
 
     def constrain_n(self,n_constr):
         self.ocp_solver.cost_set(n_constr, 'zl' , self.model.params.ws_r * np.ones((self.zl.size,)))
+        self.ocp_solver.cost_set(n_constr, 'zu' , self.model.params.ws_r * np.ones((self.zl.size,)))
         self.ocp_solver.set(n_constr, "p", np.hstack([self.model.ee_ref, [self.model.params.alpha, 1.]]))
         for i in range(1,self.N+1):
             if i != n_constr:
                 # No constraints on other running states
                 self.ocp_solver.cost_set(i, 'zl' , np.ones((self.zl.size,)))
+                self.ocp_solver.cost_set(i, 'zu' , np.ones((self.zl.size,)))
                 self.ocp_solver.set(i, "p", np.hstack([self.model.ee_ref, [self.model.params.alpha, -1.]]))
 
     def check_safe_n(self):
         r=0
         for i in range(self.r, self.N + 1):
-            if self.model.checkSafeConstraints(self.x_temp[i]):
+            if self.checkSafeConstraints(self.x_temp[i]):
                 r = i
         return r
 
@@ -572,22 +613,15 @@ class ParallelController(RecedingController):
                     break
         if node_success > 1:
             #print(f'Node success:{node_success}')
-            #self.core_solution = core
-            #self.step_old_solution = 0
-            #print(f'rrrrrrrr:{self.r}')
             self.r = node_success
             self.x_temp = tmp_x
             self.u_temp = tmp_u
             self.fails = 0
         else:
-            #self.core_solution = None
-            #self.step_old_solution +=1
             self.fails += 1
             if self.r ==1:
                 self.x_viable = np.copy(self.x_guess[1])
                 self.r = self.N
-                #print("NOT SOLVED")
-                #_,self.x_viable = self.simulator.checkSafeIntegrate([x],self.u_guess,self.r)
                 if self.model.params.use_net:
                     print(f'is x viable:{self.model.safe_set.nn_func(self.x_viable,self.model.params.alpha)}')
                 return self.u_guess[0], True
@@ -614,18 +648,18 @@ class SafeBackupController(AbstractController):
         self.ocp.cost.cost_type = 'LINEAR_LS'        
         self.ocp.cost.cost_type_e = 'LINEAR_LS'
 
-        # self.Q = np.zeros((self.model.nx, self.model.nx))
-        # self.R = np.zeros((self.model.nu, self.model.nu))
+        self.Q = np.zeros((self.model.nx, self.model.nx))
+        self.R = np.zeros((self.model.nu, self.model.nu))
 
-        # self.ocp.cost.W = lin.block_diag(self.Q, self.R)
-        # self.ocp.cost.W_e = self.Q
+        self.ocp.cost.W = lin.block_diag(self.Q, self.R)
+        self.ocp.cost.W_e = self.Q
 
-        # self.ocp.cost.Vx = np.zeros((self.model.ny, self.model.nx))
-        # self.ocp.cost.Vu = np.zeros((self.model.ny, self.model.nu))
-        # self.ocp.cost.Vx_e = np.zeros((self.model.nx, self.model.nx))
+        self.ocp.cost.Vx = np.zeros((self.model.ny, self.model.nx))
+        self.ocp.cost.Vu = np.zeros((self.model.ny, self.model.nu))
+        self.ocp.cost.Vx_e = np.zeros((self.model.nx, self.model.nx))
 
-        # self.ocp.cost.yref = np.zeros(self.model.ny)
-        # self.ocp.cost.yref_e = np.zeros(self.model.nx)
+        self.ocp.cost.yref = np.zeros(self.model.ny)
+        self.ocp.cost.yref_e = np.zeros(self.model.nx)
 
         # Terminal constraint --> zero velocity
         q_fin_lb = np.hstack([self.model.x_min[:self.model.nq], np.zeros(self.model.nv)])

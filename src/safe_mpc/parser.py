@@ -121,8 +121,8 @@ class Parameters:
         self.tol_obs = float(parameters['tol_obs'])
         self.tol_safe_set = float(parameters['tol_safe_set'])
 
-        self.Q = np.array(parameters['Q'])
-        self.R = float(parameters['R'])         # eye(nu) * R
+        self.Q_weight = float(parameters['Q_weight'])
+        self.R_weight = float(parameters['R_weight'])         # eye(nu) * R
         self.eps = float(parameters['eps'])
         self.tol_conv = float(parameters['tol_conv'])
         self.tol_cost = float(parameters['tol_cost'])
@@ -167,6 +167,14 @@ class Parameters:
         if parameters['obstacles_capsules'] != None:
             for capsule in parameters['obstacles_capsules']:
                 self.obst_capsules.append(self.create_fixed_capsule(capsule))
+
+        # self.shperes on robot
+        self.spheres_robot = []
+        for sphere_robot in parameters['spheres_robot']:
+            sphere=dict()
+            for entry in sphere_robot:
+                sphere[entry] = sphere_robot[entry]
+            self.spheres_robot.append(sphere)
                     
         self.collisions_pairs = []
         if self.use_capsules:
@@ -182,7 +190,7 @@ class Parameters:
                         self.collisions_pairs.append(self.assign_pairs(capsule_one['name'],obst['name'], self.obstacles, self.obstacles))
             else:
                 for pair in parameters['collision_pairs']:
-                    self.collisions_pairs.append(self.assign_pairs(pair[0],pair[1],self.obstacles,self.robot_capsules+self.obst_capsules)) 
+                    self.collisions_pairs.append(self.assign_pairs(pair[0],pair[1],self.obstacles,self.robot_capsules+self.obst_capsules,self.spheres_robot)) 
         
         self.track_traj = bool(parameters['track_traj'])
         if self.track_traj: 
@@ -231,7 +239,7 @@ class Parameters:
         capsule['end_points_T_fun'] = align_vectors(np.array([0,1,0]),capsule['end_points'][1]-capsule['end_points'][0])     
         return capsule
 
-    def assign_pairs(self,obj1_name,obj2_name,obstacles_list,capsules_list):
+    def assign_pairs(self,obj1_name,obj2_name,obstacles_list,capsules_list,spheres_list):
         """
         Assign the collision pairs. The arguments are the name of the capsules or of the obstacle. A capsule must be always present. For the
         moment, in case of obstacle, give it as second argument.
@@ -240,7 +248,9 @@ class Parameters:
         args=[obj1_name,obj2_name]
         for obstacle in obstacles_list:
             if obj1_name == obstacle['name']:
-                args=args.reverse()
+                for capsule in capsules_list:
+                    if obj2_name == capsule['name']:
+                        args=args.reverse()
         pair=dict()
         pair['elements'] = [None,None]
         pair['type'] = None
@@ -257,7 +267,30 @@ class Parameters:
         for obstacle in obstacles_list:
             if obj2_name == obstacle['name']:
                 pair['elements'][1] = obstacle
-                if (pair['elements'][0] != None and obstacle['type'] == 'sphere'): pair['type'] = 'capsule-sphere'
-                elif (pair['elements'][0] != None and obstacle['type'] == 'box'): pair['type'] = 'capsule-plane'
+                if (pair['elements'][0] != None and obstacle['type'] == 'sphere-obs'): pair['type'] = 'capsule-sphere'
+                elif (pair['elements'][0] != None and obstacle['type'] == 'plane'): pair['type'] = 'capsule-plane'
                 break 
+        for sphere in spheres_list:
+            if obj1_name == sphere['name']:
+                pair['elements'][0] = sphere
+                for obstacle in obstacles_list:
+                    if obj2_name == obstacle['name']:
+                        pair['elements'][1] = obstacle
+                        if (pair['elements'][0] != None and pair['elements'][1]['type'] == 'sphere-obs'): 
+                            pair['type'] = 'sphere-sphere' 
+                            return pair
+                        elif (pair['elements'][0] != None and pair['elements'][1]['type'] == 'plane'): 
+                            pair['type'] = 'sphere-plane'
+                            return pair 
+            if obj2_name == sphere['name']:
+                pair['elements'][0] = sphere
+                for obstacle in obstacles_list:
+                    if obj1_name == obstacle['name']:
+                        pair['elements'][1] = obstacle
+                        if (pair['elements'][0] != None and pair['elements'][1]['type'] == 'sphere-obs'): 
+                            pair['type'] = 'sphere-sphere' 
+                            return pair
+                        elif (pair['elements'][0] != None and pair['elements'][1]['type'] == 'plane'): 
+                            pair['type'] = 'sphere-plane'
+                            return pair
         return pair

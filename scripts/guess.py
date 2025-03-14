@@ -39,7 +39,7 @@ while succ < num_ics:
     x0 = np.zeros((models[0].nx,))
     x0[:models[0].nq] = q0
 
-    rviz.displayWithEESphere(x0[:4],params_list[0].robot_capsules+params_list[0].obst_capsules)
+    rviz.displayWithEESphere(x0[:4],params_list[0].robot_capsules+params_list[0].obst_capsules, params_list[0].spheres_robot)
 
     if ocps[0].model.checkCollision(x0):
         u0 = np.zeros((models[0].nu,)) 

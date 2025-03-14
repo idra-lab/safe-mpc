@@ -27,7 +27,7 @@ controller = get_controller(cont_name, model)
 param_backup = Parameters(model_name, rti=True)
 param_backup.use_net = None
 param_backup.solver_type = 'SQP_RTI'
-param_backup.build = False #args['build'] #  args['build']
+param_backup.build = args['build']
 model_backup = AdamModel(param_backup)
 safe_ocp = SafeBackupController(model_backup)
 controller.resetHorizon(horizon)
@@ -86,9 +86,9 @@ for i in range(0,x_init.shape[0]):
                         print(f'  ABORT at step {j}, x = {x_viable[-1]}')
                         if controller.model.params.use_net:
                             print(f'  NN output at abort with current alpha {int(params.alpha)}: ' 
-                                f'{model.safe_set.nn_func_x(x_viable[-1])}')
+                                f'{controller.safe_set.nn_func_x(x_viable[-1])}')
                             print(f'  NN output at abort with alpha = 10: '
-                                f'{model.safe_set.nn_func(x_viable[-1], [0,0,0,10.,0])}')
+                                f'{controller.safe_set.nn_func(x_viable[-1], [0,0,0,10.,0])}')
                 # Instead of breaking, solve safe abort problem
                 xg = np.full((safe_ocp.N + 1, model.nx), x_viable[-1])
                 ug = np.zeros((safe_ocp.N, model.nu))
@@ -148,7 +148,7 @@ for i in range(0,x_init.shape[0]):
 
         if cont_name not in ['naive', 'zerovel', 'trivial']:
             r = controller.r if (cont_name == 'receding' or cont_name == 'parallel') else -1
-            if not model.checkSafeConstraints(controller.x_temp[r]):
+            if not controller.checkSafeConstraints(controller.x_temp[r]):
                 counters[3] += 1
             if controller.last_status == 4:
                 counters[4] += 1

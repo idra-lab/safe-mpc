@@ -1,6 +1,7 @@
 import numpy as np
 import casadi as cs
 from copy import deepcopy
+from .safe_set import NetSafeSet, AnalyticSafeSet
 
 
 class NaiveOCP:
@@ -25,8 +26,8 @@ class NaiveOCP:
 
         opti.subject_to(X[0] == x_init)
         
-        Q = self.params.Q
-        R = self.params.R * np.eye(self.model.nu)
+        Q = self.params.Q_weight * np.eye(model.ee_ref.shape[0])
+        R = self.params.R_weight * np.eye(self.model.nu)
         ee_ref = model.ee_ref
         dist_b = []
 
@@ -56,7 +57,7 @@ class NaiveOCP:
         self.reset_controller()
 
     def additionalSetting(self):
-        pass
+        self.net_name = ''
 
     def reset_controller(self):
         self.model.params.use_net = None
@@ -73,11 +74,12 @@ class TerminalZeroVelOCP(NaiveOCP):
 
     def additionalSetting(self):
         self.opti.subject_to(self.X[-1][self.nq:] == 0.)
+        self.net_name = ''
 
 class AccBoundsOCP(NaiveOCP):
     def __init__(self, model):
         super().__init__(model)
-
+        
     def additionalSetting(self):
         nq = self.model.nq
         ddq_max = np.ones(self.model.nv) * 10.
@@ -85,15 +87,25 @@ class AccBoundsOCP(NaiveOCP):
         dq_max = self.X[-1][nq:] ** 2 / ddq_max + self.X[-1][:nq]
         self.opti.subject_to(dq_min >= self.model.x_min[:nq])        
         self.opti.subject_to(dq_max <= self.model.x_max[:nq])
-
+        self.net_name = ''
 
 class HardTerminalOCP(NaiveOCP):
     def __init__(self, model):
         super().__init__(model)
 
+    def create_safe_set(self):
+        # Analytic or network set
+        if self.model.params.use_net == True:
+            self.safe_set = NetSafeSet(self.model,cs.MX.sym('p',5),3)
+            self.net_name = '_net'
+        elif self.model.params.use_net == False: 
+            self.safe_set = AnalyticSafeSet(self.model,cs.MX.sym('p',5))
+            self.net_name = 'analytic_set'
+
     def additionalSetting(self):
-        safe_set_funs = self.model.safe_set.get_constraints_fun()
-        safe_set_bounds = self.model.safe_set.get_bounds()
+        self.create_safe_set()
+        safe_set_funs = self.safe_set.get_constraints_fun()
+        safe_set_bounds = self.safe_set.get_bounds()
         for i,func in enumerate(safe_set_funs):
             self.opti.subject_to(self.opti.bounded(safe_set_bounds[i][0],func(self.X[-1]),safe_set_bounds[i][1]))
     
@@ -101,27 +113,23 @@ class HardTerminalOCP(NaiveOCP):
         pass
 
 
-class SoftTerminalOCP(NaiveOCP):
+class SoftTerminalOCP(HardTerminalOCP):
     def __init__(self, model):
         super().__init__(model)
 
     def additionalSetting(self):
-        safe_set_funs = self.model.safe_set.get_constraints_fun()
-        safe_set_bounds = self.model.safe_set.get_bounds()
+        self.create_safe_set()
+        safe_set_funs = self.safe_set.get_constraints_fun()
+        safe_set_bounds = self.safe_set.get_bounds()
 
                 
-        slack_vars =[] 
+        slack_vars = [] 
         for i,func in enumerate(safe_set_funs):
             slack_vars.append(self.opti.variable(1))
             self.opti.subject_to(self.opti.bounded(safe_set_bounds[i][0],func(self.X[-1])+slack_vars[-1],safe_set_bounds[i][1]))     
-            if self.model.safe_set.constraint_bound == 'zl':
-                self.opti.subject_to(self.opti.bounded(0., slack_vars[-1], 1e6)) 
-                slack_sign = 1
-            elif self.model.safe_setconstraint_bound == 'zu':
-                self.opti.subject_to(self.opti.bounded(-1e6, slack_vars[-1], 0))    
-                slack_sign=-1
-            
-            self.cost += self.params.ws_t * slack_sign*slack_vars[-1]
+            self.opti.subject_to(self.opti.bounded(-1e6, slack_vars[-1], 1e6)) 
+    
+            self.cost += self.params.ws_t * slack_vars[-1]**2
 
     def reset_controller(self):
         pass

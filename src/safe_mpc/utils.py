@@ -102,10 +102,10 @@ def ball_segment_dist(A_s,B_s,capsule_length,obs_pos):
     d = cs.sum1((obs_pos-(A_s+(B_s-A_s)*t))**2) 
     return d
 
-def ball_ee_dist(obs,ee_expr):
+def sphere_sphere_dist(obs,ee_expr):
     return (ee_expr - obs['position']).T @ (ee_expr - obs['position'])
 
-def plane_ee_dist(obs,ee_expr):
+def plane_sphere_dist(obs,ee_expr):
     return ee_expr[obs['perpendicular_axis']] - obs['bounds'][obs['real_bound']]
 
 def randomize_model(urdf_file_path,noise_mass_percentage=0, noise_inertia_percentage=0, noise_cm_position_percentage=0):
@@ -137,4 +137,9 @@ def randomize_model(urdf_file_path,noise_mass_percentage=0, noise_inertia_percen
 
     # Write the modified URDF back to a file
     tree.write(urdf_file_path[:-5] + '_randomized.urdf', encoding='utf-8', xml_declaration=True)
+
+def casadi_if_else(logic_var,expression,bounds):
+        return(cs.if_else(logic_var > 0, 
+                          expression, 
+                          (bounds[0] + bounds[1])/2, True))
 

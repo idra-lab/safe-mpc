@@ -20,12 +20,11 @@ class NeuralNetwork(nn.Module):
         )
     
 class AbstractSafeSet():
-    def __init__(self,model):
+    def __init__(self,model,params):
         self.model = model
         self.constraints = []
         self.constraints_fun = []
         self.bounds = []
-        self.constraint_bound = 'zl'
     
     def get_constraints(self):
         return self.constraints
@@ -47,11 +46,8 @@ class AbstractSafeSet():
 
 # n_dof_safe_set indicates how many dofs are considered in the safe set. For example, 3 means joints 1,2,3 are considered.
 class NetSafeSet(AbstractSafeSet):
-    def __init__(self,model):
-        super().__init__(model)
-
-        # # constraints  bounded: zl if constraint has lower bound and zu if it has upper buond
-        self.constraint_bound = 'zl'
+    def __init__(self,model,params, index_alpha):
+        super().__init__(model,params)
 
         model_net = NeuralNetwork(*self.model.params.net_size ,self.model.params.act_fun)
         nn_data = torch.load(self.model.params.net_path,
@@ -71,13 +67,12 @@ class NetSafeSet(AbstractSafeSet):
                                       device='cpu',
                                       name=f'{self.model.params.urdf_name}_model',
                                       build_dir=f'{self.model.params.GEN_DIR}nn_{self.model.params.urdf_name}')
-        self.nn_model = cs.if_else(self.model.if_else_constraint_var > 0, 
-                                self.l4c_model(state) * (100 - self.model.p[3]) / 100 - vel_norm, 
-                                1., True)
+        
+        self.nn_model = self.l4c_model(state) * (100 - params[3]) / 100 - vel_norm
         
         self.constraints.append(self.nn_model)
         
-        self.nn_func = cs.Function('nn_func', [self.model.x, self.model.p], [self.nn_model])
+        self.nn_func = cs.Function('nn_func', [self.model.x, params], [self.nn_model])
         
         nn_model_alpha_fixed = self.l4c_model(state) * (100 - self.model.params.alpha) / 100 - vel_norm
         self.nn_func_x = cs.Function('nn_func_x', [self.model.x], [nn_model_alpha_fixed])
@@ -86,36 +81,33 @@ class NetSafeSet(AbstractSafeSet):
         self.bounds.append([0,1e6])
 
 class AnalyticSafeSet(AbstractSafeSet):
-    def __init__(self,model):
-        super().__init__(model)
+    def __init__(self,model,params):
+        super().__init__(model,params)
         self.reg_term = self.model.params.reg_term_analytic_constr
         self.n_dof = self.model.params.nq
-        
-        # # constraints upper bounded
-        self.constraint_bound = 'zl'
 
         for i,obs in enumerate(self.model.params.obstacles):
             if obs['type'] == 'plane':
                 self.constraints.append(-self.floor_con(obs))
                 self.bounds.append(obs['bounds'])
                 self.constraints_fun.append(cs.Function(f'obs_{i}',[self.model.x],[self.constraints[-1]]))
-                self.constraints[-1] = self.casadi_if_else(self.constraints[-1],self.bounds[-1])
+                #self.constraints[-1] = self.casadi_if_else(self.constraints[-1],self.bounds[-1])
 
             elif obs['type'] == 'sphere':
                 self.constraints.append(-self.ball_con(obs))
                 self.bounds.append(obs['bounds'])    
                 self.constraints_fun.append(cs.Function(f'obs_{i}',[self.model.x],[self.constraints[-1]]))
-                self.constraints[-1] = self.casadi_if_else(self.constraints[-1],self.bounds[-1])
+                #self.constraints[-1] = self.casadi_if_else(self.constraints[-1],self.bounds[-1])
 
         self.constraints.append(-self.ddq_min_expr())
         self.bounds.append([-np.sqrt(2*self.model.params.ddq_max[:self.model.params.n_dof_safe_set]),1e6*np.ones(self.n_dof)])
         self.constraints_fun.append(cs.Function('ddq_min',[self.model.x],[self.constraints[-1]]))
-        self.constraints[-1] = (self.casadi_if_else(self.constraints[-1],self.bounds[-1]))
+        #self.constraints[-1] = (self.casadi_if_else(self.constraints[-1],self.bounds[-1]))
 
         self.constraints.append(-self.ddq_max_expr())
         self.bounds.append([-np.sqrt(2*self.model.params.ddq_max[:self.model.params.n_dof_safe_set]),1e6*np.ones(self.n_dof)])
         self.constraints_fun.append(cs.Function('ddq_max',[self.model.x],[self.constraints[-1]]))
-        self.constraints[-1] = (self.casadi_if_else(self.constraints[-1],self.bounds[-1]))
+        #self.constraints[-1] = (self.casadi_if_else(self.constraints[-1],self.bounds[-1]))
 
 
 
@@ -139,8 +131,3 @@ class AnalyticSafeSet(AbstractSafeSet):
         dx_max_ball = cs.sqrt(cs.dot(2*self.model.params.ddx_max,cs.fabs(dist_vec_ball+self.reg_term)))
         ball_expr = cs.dot((self.model.jac(np.eye(4),self.model.x[:self.model.params.n_dof_safe_set])[:3,6:]@self.model.x[self.model.params.n_dof_safe_set:]),dist_vec_ball/cs.norm_2(dist_vec_ball)) - dx_max_ball  #-cs.fabs(cs.dot(dx_max_ball,dist_vec_ball))
         return ball_expr
-    
-    def casadi_if_else(self,expression,bounds):
-        return(cs.if_else(self.model.if_else_constraint_var > 0, 
-                          expression, 
-                          (bounds[0] + bounds[1])/2, True))

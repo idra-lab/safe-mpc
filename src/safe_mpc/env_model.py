@@ -12,7 +12,7 @@ import torch.nn as nn
 import l4casadi as l4c
 from .safe_set import NetSafeSet, AnalyticSafeSet
 import xml.etree.ElementTree as ET
-from .utils import rot_mat_x,rot_mat_y,rot_mat_z, casadi_segment_dist,ball_segment_dist,ball_ee_dist,plane_ee_dist, randomize_model
+from .utils import rot_mat_x,rot_mat_y,rot_mat_z, casadi_segment_dist,ball_segment_dist,sphere_sphere_dist,plane_sphere_dist, randomize_model
 
 class AdamModel:
     def __init__(self, params):
@@ -21,13 +21,12 @@ class AdamModel:
         # Robot dynamics with Adam (IIT)                
         robot_joints = []
         jj=0
-        while jj < self.params.nq:
-            for jointt in self.params.robot_descr.joints:
-                if jointt.type != 'fixed':
-                    robot_joints.append(jointt)
-                    jj +=1
-                    if jj == self.params.nq:
-                        break
+        for jointt in self.params.robot_descr.joints:
+            if jointt.type != 'fixed':
+                robot_joints.append(jointt)
+                jj +=1
+                if jj == self.params.nq:
+                    break
 
         joint_names = [joint.name for joint in robot_joints]
 
@@ -55,9 +54,6 @@ class AdamModel:
         self.x = MX.sym("x", nq * 2)
         self.x_dot = MX.sym("x_dot", nq * 2)
         self.u = MX.sym("u", nq)
-        self.p = MX.sym("p", 5)     # Safety margin for the NN model in percentage ex (10% defined as 10), EE reference (where you want to move the EE), logic variable: 1 to activate the safe set constraint, -1 to deactivate it
-        
-        self.if_else_constraint_var = self.p[4]
         
         # Double integrator
         self.f_disc = vertcat(
@@ -69,14 +65,12 @@ class AdamModel:
         self.amodel.x = self.x
         self.amodel.u = self.u
         self.amodel.disc_dyn_expr = self.f_disc
-        self.amodel.p = self.p
 
         self.nx = self.amodel.x.size()[0]
         self.nu = self.amodel.u.size()[0]
         self.ny = self.nx + self.nu
         self.nq = self.params.nq
         self.nv = nq
-        self.np = self.amodel.p.size()[0]
 
         # Inverse dynamics, torque computation
         H_b = np.eye(4)
@@ -123,8 +117,6 @@ class AdamModel:
         # Cartesian constraints
         self.obs_string = self.params.obs_string
         self.joint_names = joint_names
-
-        self.create_safe_set()
         
         # Capsules end-points forward kinematics
         n_cap=0
@@ -136,9 +128,9 @@ class AdamModel:
                 rot_mat = rot_mat_x(th_off[0])@rot_mat_y(th_off[1])@rot_mat_z(th_off[2])
             if capsule['spatial_offset'] != None:
                 prism_mat = np.array([[1,0,0,capsule['spatial_offset'][0]],
-                                        [0,1,0,capsule['spatial_offset'][1]],
-                                        [0,0,1,capsule['spatial_offset'][2]],
-                                        [0,0,0,1]])
+                                      [0,1,0,capsule['spatial_offset'][1]],
+                                      [0,0,1,capsule['spatial_offset'][2]],
+                                      [0,0,0,1]])
                 rot_mat = prism_mat@rot_mat  
             fk_capsule_points = self.kin_dyn.forward_kinematics_fun(capsule['link_name'])   
             T_capsule_points = fk_capsule_points(np.eye(4), self.x[:self.nq])@rot_mat
@@ -152,20 +144,19 @@ class AdamModel:
             capsule['index']=n_cap
             capsule['end_points_fk_fun'] = deepcopy(cs.Function(f'fun_fk_{n_cap}',[self.x],[capsule['end_points'][0], capsule['end_points'][1]]))
             n_cap += 1
+        n_cap = 0
+        for sphere in self.params.spheres_robot:
+            fk_sphere = self.kin_dyn.forward_kinematics_fun(sphere['link_name'])
+            T_sphere = fk_sphere(np.eye(4), self.x[:nq])
+            sphere['fk'] = T_sphere[:3,3] +T_sphere[:3, :3]@ sphere['spatial_offset']      
+            sphere['fk_fun'] = Function(f'sphere_fk_{n_cap}', [self.x], [sphere['fk']])
+            sphere['index']=n_cap
+            n_cap +=1
 
         self.NL_external = self.generate_NLconstraints_list()
 
     def jointToEE(self, x):
         return np.array(self.ee_fun(x))
-
-    def create_safe_set(self):
-        # Analytic or network set
-        if self.params.use_net == True:
-            self.safe_set = NetSafeSet(self)
-            self.net_name = '_net'
-        elif self.params.use_net == False: 
-            self.safe_set = AnalyticSafeSet(self)
-            self.net_name = 'analytic_set'
 
     def checkStateConstraints(self, x):
         return np.all(np.logical_and(x >= self.x_min - self.params.tol_x, 
@@ -188,8 +179,6 @@ class AdamModel:
     def checkRunningConstraints(self, x, u):
         return self.checkStateConstraints(x) and self.checkTorqueBounds(x,u)
 
-    def checkSafeConstraints(self, x):
-        return self.safe_set.check_constraint(x) 
     
     def integrate(self, x, u):
         x_next = np.zeros(self.nx)
@@ -240,45 +229,58 @@ class AdamModel:
         constraint_list_1_N_minus_1.append([self.tau,self.tau_min,self.tau_max])
 
         # collisions
-        if self.params.use_capsules:
-            for i,pair in enumerate(self.params.collisions_pairs):
-                if pair['type'] == 'capsule-capsule':
-                    constraint_list_0.append([casadi_segment_dist(*pair['elements'][0]['end_points_fk'],*pair['elements'][1]['end_points_fk']), \
-                                            (pair['elements'][0]['radius']+pair['elements'][1]['radius'])**2,1e6])
+        # if self.params.use_capsules:
+        for i,pair in enumerate(self.params.collisions_pairs):
+            if pair['type'] == 'capsule-capsule':
+                constraint_list_0.append([casadi_segment_dist(*pair['elements'][0]['end_points_fk'],*pair['elements'][1]['end_points_fk']), \
+                                        (pair['elements'][0]['radius']+pair['elements'][1]['radius'])**2,1e6])
+                constraint_list_1_N_minus_1.append(constraint_list_0[-1])
+                constraint_list_N.append(constraint_list_0[-1])
+                self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}",[self.x],[constraint_list_N[-1][0]]), \
+                                        constraint_list_N[-1][1]-self.params.tol_obs,constraint_list_N[-1][2]+self.params.tol_obs])
+            elif pair['type'] == 'capsule-sphere':
+                constraint_list_0.append([ball_segment_dist(*pair['elements'][0]['end_points_fk'],pair['elements'][0]['length'],pair['elements'][1]['position']), \
+                                        (pair['elements'][1]['radius']+pair['elements'][0]['radius'])**2,1e6])
+                constraint_list_1_N_minus_1.append(constraint_list_0[-1])
+                constraint_list_N.append(constraint_list_0[-1])
+                self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}",[self.x],[constraint_list_N[-1][0]]), \
+                                        constraint_list_N[-1][1]-self.params.tol_obs,constraint_list_N[-1][2]+self.params.tol_obs])
+            elif pair['type'] == 'capsule-plane':
+                for point in pair['elements'][0]['end_points_fk']:
+                    constraint_list_0.append([point[pair['elements'][1]['perpendicular_axis']],pair['elements'][1]['bounds'][0]+pair['elements'][0]['radius'],pair['elements'][1]['bounds'][1]-pair['elements'][0]['radius']])
                     constraint_list_1_N_minus_1.append(constraint_list_0[-1])
                     constraint_list_N.append(constraint_list_0[-1])
                     self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}",[self.x],[constraint_list_N[-1][0]]), \
-                                          constraint_list_N[-1][1]-self.params.tol_obs,constraint_list_N[-1][2]+self.params.tol_obs])
-                elif pair['type'] == 'capsule-sphere':
-                    constraint_list_0.append([ball_segment_dist(*pair['elements'][0]['end_points_fk'],pair['elements'][0]['length'],pair['elements'][1]['position']), \
-                                            (pair['elements'][1]['radius']+pair['elements'][0]['radius'])**2,1e6])
-                    constraint_list_1_N_minus_1.append(constraint_list_0[-1])
-                    constraint_list_N.append(constraint_list_0[-1])
-                    self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}",[self.x],[constraint_list_N[-1][0]]), \
-                                          constraint_list_N[-1][1]-self.params.tol_obs,constraint_list_N[-1][2]+self.params.tol_obs])
-                elif pair['type'] == 'capsule-plane':
-                    for point in pair['elements'][0]['end_points_fk']:
-                        constraint_list_0.append([point[obs['perpendicular_axis']],pair['elements'][1]['bounds'][0]+pair['elements'][0]['radius'],pair['elements'][1]['bounds'][1]-pair['elements'][0]['radius']])
-                        constraint_list_1_N_minus_1.append(constraint_list_0[-1])
-                        constraint_list_N.append(constraint_list_0[-1])
-                        self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}",[self.x],[constraint_list_N[-1][0]]), \
-                                          constraint_list_N[-1][1]-self.params.tol_obs,constraint_list_N[-1][2]+self.params.tol_obs])
-        
-        else:
-            for i,obs in enumerate(self.params.obstacles):
-                if obs['type'] == 'sphere':
-                    constr_expr = ball_ee_dist(obs,self.t_glob)
-                    constraint_list_0.append([constr_expr, (self.params.ee_radius+obs['radius'])**2,1e6])
-                    constraint_list_1_N_minus_1.append(constraint_list_0[-1])
-                    constraint_list_N.append(constraint_list_0[-1])
-                    self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}",[self.x],[constraint_list_N[-1][0]]), \
-                                          constraint_list_N[-1][1]-self.params.tol_obs,constraint_list_N[-1][2]+self.params.tol_obs])
-                if obs['type'] == 'plane':
-                    constr_expr = plane_ee_dist(obs,self.t_glob)
-                    constraint_list_0.append([constr_expr,obs['bounds'][0] + self.params.ee_radius,obs['bounds'][1] - self.params.ee_radius])
-                    constraint_list_1_N_minus_1.append(constraint_list_0[-1])
-                    constraint_list_N.append(constraint_list_0[-1])
-                    self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}",[self.x],[constraint_list_N[-1][0]]), \
-                                          constraint_list_N[-1][1]-self.params.tol_obs,constraint_list_N[-1][2]+self.params.tol_obs])
+                                        constraint_list_N[-1][1]-self.params.tol_obs,constraint_list_N[-1][2]+self.params.tol_obs])
+            elif pair['type'] == 'sphere-sphere':
+                constr_expr = sphere_sphere_dist(pair['elements'][1],pair['elements'][0]['fk'])
+                constraint_list_0.append([constr_expr, (pair['elements'][0]['radius']+pair['elements'][1]['radius'])**2,1e6])
+                constraint_list_1_N_minus_1.append(constraint_list_0[-1])
+                constraint_list_N.append(constraint_list_0[-1])
+                self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}",[self.x],[constraint_list_N[-1][0]]), \
+                                        constraint_list_N[-1][1]-self.params.tol_obs,constraint_list_N[-1][2]+self.params.tol_obs])
+            if pair['type'] == 'sphere-plane':
+                constr_expr = plane_sphere_dist(pair['elements'][1],pair['elements'][0]['fk'])
+                constraint_list_0.append([constr_expr,pair['elements'][1]['bounds'][0] + pair['elements'][0]['radius'],pair['elements'][1]['bounds'][1] - pair['elements'][0]['radius']])
+                constraint_list_1_N_minus_1.append(constraint_list_0[-1])
+                constraint_list_N.append(constraint_list_0[-1])
+                self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}",[self.x],[constraint_list_N[-1][0]]), \
+                                        constraint_list_N[-1][1]-self.params.tol_obs,constraint_list_N[-1][2]+self.params.tol_obs])
+        # else:
+        #     for i,obs in enumerate(self.params.obstacles):
+        #         if obs['type'] == 'sphere':
+        #             constr_expr = sphere_sphere_dist(obs,self.t_glob)
+        #             constraint_list_0.append([constr_expr, (self.params.ee_radius+obs['radius'])**2,1e6])
+        #             constraint_list_1_N_minus_1.append(constraint_list_0[-1])
+        #             constraint_list_N.append(constraint_list_0[-1])
+        #             self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}",[self.x],[constraint_list_N[-1][0]]), \
+        #                                   constraint_list_N[-1][1]-self.params.tol_obs,constraint_list_N[-1][2]+self.params.tol_obs])
+        #         if obs['type'] == 'plane':
+        #             constr_expr = plane_sphere_dist(obs,self.t_glob)
+        #             constraint_list_0.append([constr_expr,obs['bounds'][0] + self.params.ee_radius,obs['bounds'][1] - self.params.ee_radius])
+        #             constraint_list_1_N_minus_1.append(constraint_list_0[-1])
+        #             constraint_list_N.append(constraint_list_0[-1])
+        #             self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}",[self.x],[constraint_list_N[-1][0]]), \
+        #                                   constraint_list_N[-1][1]-self.params.tol_obs,constraint_list_N[-1][2]+self.params.tol_obs])
 
         return constraint_list_0,constraint_list_1_N_minus_1,constraint_list_N

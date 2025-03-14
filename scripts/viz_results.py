@@ -40,7 +40,7 @@ if robot.track_traj:
     x_trj = np.vstack((x,y,z))
     x_trj=rot_mat@x_trj + params.offset_traj.reshape((3,1))
 
-data = pickle.load(open(f'{params.DATA_DIR}z1_receding_use_netTrue_50hor_10sm_mpc.pkl', 'rb'))
+data = pickle.load(open(f'{params.DATA_DIR}z1_receding_use_netTrue_45hor_10sm_mpc.pkl', 'rb'))
 
 x = data['x']
 
@@ -54,9 +54,10 @@ for j in range(0,params.test_num if not(robot.track_traj) else 1):
         rviz.addTraj(x_trj)
         rviz.vizTraj(x_trj)
     else:
-        rviz.setTarget(params.ee_ref)
+      rviz.setTarget(params.ee_ref)
     if robot.model.params.robot_capsules != None:
             rviz.init_capsule(robot.model.params.robot_capsules)
+    rviz.init_spheres(robot.model.params.spheres_robot)
     if robot.model.params.obst_capsules != None:
             rviz.init_capsule(robot.model.params.obst_capsules)  
 
@@ -70,10 +71,10 @@ for j in range(0,params.test_num if not(robot.track_traj) else 1):
             if (i%100)==0:
                 print(f'Trajectory velocity:{robot.vel_traj} [m/s]')
         if params.use_capsules:
-            rviz.displayWithEESphere(x[j][i, :model.nq],robot.model.params.robot_capsules+robot.model.params.obst_capsules)
+            rviz.displayWithEESphere(x[j][i, :model.nq],robot.model.params.robot_capsules+robot.model.params.obst_capsules,robot.model.params.spheres_robot)
         else:
              T_ee = np.eye(4)
              T_ee[:3,3] = np.array(robot.model.ee_fun_noisy(x[j][i])).reshape(3)
              rviz.displayWithEE(x[j][i, :model.nq],T_ee)
 
-        time.sleep(params.dt)
+        time.sleep(params.dt*10)
