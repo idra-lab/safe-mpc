@@ -121,6 +121,7 @@ class Parameters:
         self.tol_obs = float(parameters['tol_obs'])
         self.tol_safe_set = float(parameters['tol_safe_set'])
 
+        self.cost_type = parameters['cost_type']
         self.Q_weight = float(parameters['Q_weight'])
         self.R_weight = float(parameters['R_weight'])         # eye(nu) * R
         self.eps = float(parameters['eps'])

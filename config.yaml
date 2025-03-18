@@ -10,6 +10,8 @@ alpha: 10.                # safety margin
 n_dofs: 4                 # number of controlled joints 
 n_dof_safe_set: 4
 
+cost_type: 'NLS'          # NLS (non-linear least squares) or EXT (external)
+
 solver_mode: 'BALANCE'    # HPIPM mode, can be --> 'BALANCE', 'ROBUST', 'SPEED', 'SPEED_ABS'
 nlp_max_iter: 400
 rti_iter: 1
@@ -169,7 +171,7 @@ collision_pairs:
    - ['ee_sphere', 'ball']
 
 
-track_traj: false
+track_traj: true
 dim_shape_8: 0.3
 offset_traj: [0.37, 0.,0.1]
 theta_rot_traj: [0,0,1.570]

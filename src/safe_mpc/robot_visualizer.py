@@ -153,6 +153,8 @@ class RobotVisualizer:
             self.render_capsule(q,capsule)
         for sphere in spheres:
             self.render_sphere(q,sphere)
+        time.sleep(self.params.dt)
+        
 
     def addTraj(self,points):
         for i in range(points.shape[1]):

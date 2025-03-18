@@ -17,7 +17,7 @@ params = Parameters('z1', True)
 params.build = False
 model = AdamModel(params)
 robot = RecedingController(model)
-robot.track_traj = False
+robot.track_traj = True
 rviz = RobotVisualizer(params, 4)
 if not(robot.track_traj):
     rviz.setTarget(params.ee_ref)
@@ -38,9 +38,9 @@ if robot.track_traj:
     z=np.zeros(x.shape[0])
 
     x_trj = np.vstack((x,y,z))
-    x_trj=rot_mat@x_trj + params.offset_traj.reshape((3,1))
+    x_trj=rot_mat[:3,:3]@x_trj + params.offset_traj.reshape((3,1))
 
-data = pickle.load(open(f'{params.DATA_DIR}z1_receding_use_netTrue_45hor_10sm_mpc.pkl', 'rb'))
+data = pickle.load(open(f'{params.DATA_DIR}z1_receding_use_netTrue_40hor_10sm_traj_trackmpc.pkl', 'rb'))
 
 x = data['x']
 
@@ -67,9 +67,10 @@ for j in range(0,params.test_num if not(robot.track_traj) else 1):
             print(x[j][i])
             break
         if robot.track_traj:
-            robot.generate_trajectory(robot.vel_traj)
             if (i%100)==0:
-                print(f'Trajectory velocity:{robot.vel_traj} [m/s]')
+                vel=(robot.acc_traj*i)
+                if vel <= robot.vel_max_traj:
+                    print(f'Trajectory velocity at step {i} : {vel} [m/s]')
         if params.use_capsules:
             rviz.displayWithEESphere(x[j][i, :model.nq],robot.model.params.robot_capsules+robot.model.params.obst_capsules,robot.model.params.spheres_robot)
         else:
@@ -77,4 +78,4 @@ for j in range(0,params.test_num if not(robot.track_traj) else 1):
              T_ee[:3,3] = np.array(robot.model.ee_fun_noisy(x[j][i])).reshape(3)
              rviz.displayWithEE(x[j][i, :model.nq],T_ee)
 
-        time.sleep(params.dt*10)
+        #time.sleep(params.dt)

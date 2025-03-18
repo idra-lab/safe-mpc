@@ -7,7 +7,7 @@ from copy import deepcopy
 import casadi as cs
 import sympy as sym
 from .safe_set import NetSafeSet, AnalyticSafeSet
-
+#from .cost_definition import CostSettings
 
 class AbstractController:
     def __init__(self, model):
@@ -29,26 +29,33 @@ class AbstractController:
 
         # Cost
         
-        self.ocp.cost.cost_type = 'EXTERNAL'
-        self.ocp.cost.cost_type_e = 'EXTERNAL'
+        if self.model.params.cost_type == 'NLS':
+            self.ocp.cost.cost_type = 'NONLINEAR_LS'
+            self.ocp.cost.cost_type_e = 'NONLINEAR_LS'
 
-        t_glob = self.model.t_glob
-        delta = t_glob - self.p[:3]    #self.model.ee_ref
-        track_ee = delta.T @ (self.model.params.Q_weight * np.eye(3)) @ delta 
-        self.ocp.model.cost_expr_ext_cost = track_ee + self.model.u.T @ (self.model.params.R_weight * np.eye(self.model.nu)) @ self.model.u if not(self.model.params.track_traj) else track_ee
-        self.ocp.model.cost_expr_ext_cost_e = track_ee
+            self.ocp.model.cost_y_expr_0 = cs.vertcat(self.model.t_glob - self.p[:3],self.model.u)
+            self.ocp.cost.W_0 = lin.block_diag(self.model.params.Q_weight*np.eye(self.model.t_glob.shape[0]),self.model.params.R_weight*np.eye(self.model.nu))
+            self.ocp.cost.yref_0 = np.hstack((np.zeros((self.model.t_glob.shape[0],)), np.zeros(self.model.nu)))#
+
+            self.ocp.model.cost_y_expr = self.ocp.model.cost_y_expr_0
+            self.ocp.cost.W = self.ocp.cost.W_0 
+            self.ocp.cost.yref = self.ocp.cost.yref_0  #np.vstack((self.model.p[:3], np.zeros(self.model.nu))) 
+
+            self.ocp.model.cost_y_expr_e = self.model.t_glob - self.p[:3]
+            self.ocp.cost.W_e = self.model.params.Q_weight*np.eye(self.model.t_glob.shape[0])
+            self.ocp.cost.yref_e = np.zeros((self.model.t_glob.shape[0],)) # self.model.ee_ref #np.zeros((self.model.t_glob.shape[0],))#self.model.p[:3] 
+
+        elif self.model.params.cost_type == 'EXT':
+            self.ocp.cost.cost_type = 'EXTERNAL'
+            self.ocp.cost.cost_type_e = 'EXTERNAL'
+
+            t_glob = self.model.t_glob
+            delta = t_glob - self.p[:3]    #self.model.ee_ref
+            track_ee = delta.T @ (self.model.params.Q_weight * np.eye(3)) @ delta 
+            self.ocp.model.cost_expr_ext_cost = track_ee + self.model.u.T @ (self.model.params.R_weight * np.eye(self.model.nu)) @ self.model.u if not(self.model.params.track_traj) else track_ee
+            self.ocp.model.cost_expr_ext_cost_e = track_ee
         
-        # self.ocp.model.cost_y_expr_0 = cs.vertcat(self.model.t_glob,self.model.u)
-        # self.ocp.cost.W_0 = lin.block_diag(self.model.params.Q_weight*np.eye(self.model.t_glob.shape[0]),self.model.params.R_weight*np.eye(self.model.nu))
-        # self.ocp.cost.yref_0 = np.hstack((self.model.ee_ref, np.zeros(self.model.nu)))#
-
-        # self.ocp.model.cost_y_expr = self.ocp.model.cost_y_expr_0
-        # self.ocp.cost.W = self.ocp.cost.W_0 
-        # self.ocp.cost.yref = self.ocp.cost.yref_0  #np.vstack((self.model.p[:3], np.zeros(self.model.nu))) 
-
-        # self.ocp.model.cost_y_expr_e = self.model.t_glob
-        # self.ocp.cost.W_e = self.model.params.Q_weight*np.eye(self.model.t_glob.shape[0])
-        # self.ocp.cost.yref_e = self.model.ee_ref #np.zeros((self.model.t_glob.shape[0],))#self.model.p[:3] 
+        
         
         self.ocp.parameter_values = np.hstack([self.model.ee_ref, [self.model.params.alpha, 1.]])
 
@@ -154,22 +161,43 @@ class AbstractController:
 
             self.generate_trajectory(self.vel_traj)
 
+        else:
+            self.traj_to_track = np.tile(self.model.params.ee_ref, (self.model.params.n_steps + 1 + self.model.params.N, 1)).T
+
     def checkSafeConstraints(self, x):
         return self.safe_set.check_constraint(x) 
     
     def create_safe_set(self):
         pass
 
+    # def generate_trajectory(self,velocity):
+    #     traj = np.zeros((3,self.N+1))
+    #     theta = self.theta_traj
+    #     self.theta_traj = self.theta_next_from_vel(self.theta_traj,velocity)
+    #     for i in range(self.N+1):
+    #         traj[:,i] = self.get_point_from_theta(theta) 
+    #         theta = self.theta_next_from_vel(theta,velocity)
+    #     self.traj_to_track = self.rot_mat__traj @ traj + self.offset_traj
+    #     if not(self.model.params.vel_const) and (self.vel_traj < self.vel_max_traj):
+    #         self.vel_traj += self.acc_traj
+
     def generate_trajectory(self,velocity):
-        traj = np.zeros((3,self.N+1))
-        theta = self.theta_traj
-        self.theta_traj = self.theta_next_from_vel(self.theta_traj,velocity)
-        for i in range(self.N+1):
+        from .utils import rot_mat_x,rot_mat_y,rot_mat_z
+        if self.model.params.vel_const == False:
+            velocity = 0
+            acc = self.model.params.vel_max_traj/(self.model.params.n_steps*self.model.params.acc_time)
+        else:
+            velocity =  self.model.params.vel_max_traj
+        traj = np.zeros((3, self.model.params.n_steps + 1 + self.model.params.N))
+        theta = 0
+        for i in range(traj.shape[1]):
             traj[:,i] = self.get_point_from_theta(theta) 
             theta = self.theta_next_from_vel(theta,velocity)
-        self.traj_to_track = self.rot_mat__traj @ traj + self.offset_traj
-        if not(self.model.params.vel_const) and (self.vel_traj < self.vel_max_traj):
-            self.vel_traj += self.acc_traj
+            if not(self.model.params.vel_const) and velocity <= self.model.params.vel_max_traj:
+                velocity += acc 
+        rot_mat__traj = rot_mat_x(self.model.params.theta_rot_traj[0])@rot_mat_y(self.model.params.theta_rot_traj[1])@rot_mat_z(self.model.params.theta_rot_traj[2])
+        self.traj_to_track = (rot_mat__traj[:3,:3] @ traj) + self.model.params.offset_traj.reshape(3,1)
+        
 
     def get_point_from_theta(self,theta):
         return np.array([(self.a_shape_8*np.cos(theta))/(1+np.sin(theta)**2),(self.a_shape_8*np.cos(theta)*np.sin(theta))/(1+np.sin(theta)**2),0] )
@@ -195,10 +223,8 @@ class AbstractController:
         self.ocp_solver.set(0, 'x', x0)
         self.ocp_solver.set(self.N, 'x', self.x_guess[-1])
 
-        if self.track_traj:
-            for i in range(self.N+1):
-                self.ocp_solver.set(i,'p',np.array([self.traj_to_track[0,i],self.traj_to_track[1,i],self.traj_to_track[2,i],self.model.params.alpha,self.ocp_solver.get(i,'p')[-1]]))
-            self.generate_trajectory(self.vel_traj)
+        for i in range(self.N+1):
+            self.ocp_solver.set(i,'p',np.array([self.traj_to_track[0,self.current_step+i],self.traj_to_track[1,self.current_step+i],self.traj_to_track[2,self.current_step+i],self.model.params.alpha,self.ocp_solver.get(i,'p')[-1]]))
         # Solve the OCP
         status = self.ocp_solver.solve()
 
@@ -319,6 +345,7 @@ class NaiveController(AbstractController):
             self.fails = 0
         else:
             self.fails += 1
+        self.current_step +=1
         return self.provideControl()
     
     
@@ -401,6 +428,7 @@ class STWAController(STController):
             if self.fails == self.N - 1:
                 return self.u_guess[0], True
             self.fails += 1
+        self.current_step += 1
         return self.provideControl()
 
     def setGuess(self, x_guess, u_guess):
@@ -497,7 +525,8 @@ class RecedingController(STWAController):
                     self.r = i - 1
         else:
             self.fails += 1
-            
+        
+        self.current_step += 1
         return self.provideControl()
     
     def resetHorizon(self, N):
@@ -627,6 +656,7 @@ class ParallelController(RecedingController):
                 return self.u_guess[0], True
         self.r -= 1
 
+        self.current_step += 1
         return self.provideControl()
     
     def resetHorizon(self, N):

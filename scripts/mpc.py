@@ -53,7 +53,7 @@ counters = np.zeros(5)
 not_conv = 0
 tau_viol = []
 kp, kd = 0.1, 1e2
-for i in range(0,x_init.shape[0]):
+for i in range(0,1+0*x_init.shape[0]):
     traj_costs[i] = 0
     print(f'Simulation {i + 1}/{params.test_num}')
     x0 = x_init[i]
@@ -68,8 +68,8 @@ for i in range(0,x_init.shape[0]):
     ja = 0
     sa_flag = False
     for j in range(params.n_steps):
-        if controller.track_traj:
-            traj_costs[i] += (controller.model.jointToEE(x_sim[-1])-controller.traj_to_track[:,1]).T @ controller.Q @ (controller.model.jointToEE(x_sim[-1])-controller.traj_to_track[:,1])
+        # if controller.track_traj:
+        #     traj_costs[i] += (controller.model.jointToEE(x_sim[-1])-controller.traj_to_track[:,1]).T @ controller.Q @ (controller.model.jointToEE(x_sim[-1])-controller.traj_to_track[:,1])
         if sa_flag and ja < safe_ocp.N:
             # Follow safe abort trajectory (PD to stabilize at the end)
             u[j] = u_abort[ja]
