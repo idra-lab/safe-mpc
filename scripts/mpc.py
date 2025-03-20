@@ -33,7 +33,7 @@ safe_ocp = SafeBackupController(model_backup)
 controller.resetHorizon(horizon)
 safe_ocp.resetHorizon(params.back_hor)
 
-traj__track = 'traj_track' if controller.track_traj else "" 
+traj__track = 'traj_track' if controller.model.params.track_traj else "" 
 
 data = pickle.load(open(f'{params.DATA_DIR}{model_name}_{cont_name}_{horizon}hor_{int(params.alpha)}sm_use_net{controller.model.params.use_net}_{traj__track}_guess.pkl', 'rb'))
 

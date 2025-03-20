@@ -196,6 +196,7 @@ class Parameters:
         self.track_traj = bool(parameters['track_traj'])
         if self.track_traj: 
             self.n_steps=int(parameters['n_steps_tracking'])
+            self.n_steps_tracking=int(parameters['n_steps_tracking'])
             self.dim_shape_8 = float(parameters['dim_shape_8'])
             self.offset_traj = np.array(parameters['offset_traj'])
             self.theta_rot_traj = np.array(parameters['theta_rot_traj'])

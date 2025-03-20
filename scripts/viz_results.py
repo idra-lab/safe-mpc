@@ -68,9 +68,10 @@ for j in range(0,params.test_num if not(robot.track_traj) else 1):
             break
         if robot.track_traj:
             if (i%100)==0:
-                vel=(robot.acc_traj*i)
-                if vel <= robot.vel_max_traj:
-                    print(f'Trajectory velocity at step {i} : {vel} [m/s]')
+                print(i)
+                # vel=(robot.acc_traj*i)
+                # if vel <= robot.vel_max_traj:
+                #     print(f'Trajectory velocity at step {i} : {vel} [m/s]')
         if params.use_capsules:
             rviz.displayWithEESphere(x[j][i, :model.nq],robot.model.params.robot_capsules+robot.model.params.obst_capsules,robot.model.params.spheres_robot)
         else:
