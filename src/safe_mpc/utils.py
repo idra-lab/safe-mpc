@@ -117,18 +117,19 @@ def assign_pairs(obj1_name,obj2_name,obstacles_list,capsules_list):
             break 
     return pair
 
-
+BUFFER_SIZE = 60000
 
 ### OBSTACLES ###
 ee_radius = 0.05
-ee_ref = np.array([0.6, 0.0, 0.498])
-# R_ref = np.eye(3)
+ee_ref = np.array([0.35, 0.0, 0.298])
+safe_dist = np.array([-0.2, 0., 0.])        # safety for ee_ref (mocap)
+R_ref = np.eye(3)
 # Rotation of 90 degrees around the x-axis
-R_ref = np.array([
-    [1, 0, 0],
-    [0, 0, -1],
-    [0, 1, 0]
-])
+# R_ref = np.array([
+#     [1, 0, 0],
+#     [0, 0, -1],
+#     [0, 1, 0]
+# ])
 # ee_ref = np.array([0.7, 0., 0.078])
 # ee_ref = np.array([0.5, -0.2, 0.078])
 
