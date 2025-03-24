@@ -38,9 +38,9 @@ plt.ylabel("Time (ms)")
 
 plt.show()
 
-print(f'99th percentile of solver time: {np.percentile(timings[0], 0.99)} ms')
-print(f'99.9th percentile of solver time: {np.percentile(timings[0], 0.999)} ms')
+print(f'99th percentile of solver time: {np.quantile(timings[0], 0.99)} ms')
+print(f'99.9th percentile of solver time: {np.quantile(timings[0], 0.999)} ms')
 print(f'Max solver time: {np.max(timings[0])} ms')
-print(f'99th percentile of total time: {np.percentile(timings[1], 0.99)} ms')
-print(f'99.9th percentile of total time: {np.percentile(timings[1], 0.999)} ms')
+print(f'99th percentile of total time: {np.quantile(timings[1], 0.99)} ms')
+print(f'99.9th percentile of total time: {np.quantile(timings[1], 0.999)} ms')
 print(f'Max total time: {np.max(timings[1])} ms')
