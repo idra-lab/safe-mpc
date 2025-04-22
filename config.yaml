@@ -1,4 +1,4 @@
-test_num: 20            # number of tests
+test_num: 400            # number of tests
 n_steps: 800              # number of time steps in each test
 cpu_num: 24
 
@@ -32,7 +32,7 @@ ipopt_opts:
   'ipopt.sb': 'yes'
         
 
-Q_weight: 5e2                        # state cost
+Q_weight: 1e2                        # state cost
   # - [100, 0., 0.]
   # - [0., 100, 0.]
   # - [0., 0., 100]
@@ -43,7 +43,7 @@ tol_x: 5e-3               # state -4
 tol_tau: 1e-6             # torque
 tol_dyn: 1e-6             # dynamics
 tol_obs: 1e-4             # obstacle tolerance -6
-tol_safe_set: 5e-4        # neural network -6
+tol_safe_set: 1e-4        # neural network -6
 
 eps: 1e-6                 # for numerical stability in NN function 
 tol_conv: 1e-3            # convergence tolerance for the task
@@ -58,7 +58,8 @@ obs_string: '_obs'
 abort_flag: true         # activation of abort mechanism for receding MPC
 use_net: true            # use the network safe set if true, otherwise analytic safe set
 
-network_path: 'nn_models/z1/4dof_gelu_obs.pt'   # path to network file
+# network_path: 'nn_models/z1/4dof_gelu_dt_5_line_trackingms.pt'   # path to network file
+network_path: '../nn_models/z1/4dof_gelu_obs.pt'
 network_size: [8, 256, 1]                       # input, hidden and output size
 act_fun: 'gelu'
 
@@ -66,12 +67,14 @@ reg_term: 1e-6            # regularization term for anaytic safe set constraints
 
 frame_ee: 'gripperMover'
 ee_position: [0.035, 0., 0.] # ee position in in frame_ee 
-ee_ref: [0.6, 0.13, 0.078]
-ee_radius: 0.05
+ee_ref: [0.6, 0.28, 0.078] 
+ee_radius: 0.075
 
+# Analytic set parameters
 ddq_max: [0.1       , 1.        , 1.666, 2.333, 2.333, 2.333]
 ddx_max: [0.133, 0.133, 0.133]
 
+# Obstacles and capsules
 obstacles:
   - name: 'floor'
     type: 'plane'
@@ -90,8 +93,8 @@ obstacles:
   - name: 'ball'
     type: 'sphere-obs'
     radius: 0.12
-    color: [0,1,1,1]
-    position: [0.6,0,0.12]
+    color: [0,1,0,1]
+    position: [0.6,0.,0.12]
     transform: 
       - [1,0,0,0.6]
       - [0,1,0,0]
@@ -99,7 +102,29 @@ obstacles:
       - [0,0,0,1]
     bounds: [0,1e6]     # minimum and maximum distance from the sphere's surface. Minimum distance 0 means ball can be only touched lightly. 
 
-use_capsules: true   # if false, only ee obstacles considered
+  # - name: 'ball2'
+  #   type: 'sphere-obs'
+  #   radius: 0.05
+  #   color: [0,1,1,1]
+  #   position: [0.6,-0.2,0.12]
+  #   transform:
+  #     - [1,0,0,0.6]
+  #     - [0,1,0,-0.2]
+  #     - [0,0,1,0.12]
+  #     - [0,0,0,1]
+  #   bounds: [0,1e6] 
+
+  # - name: 'ball3'
+  #   type: 'sphere-obs'
+  #   radius: 0.05
+  #   color: [0,1,1,1]
+  #   position: [0.6,0.2,0.12]
+  #   transform:
+  #     - [1,0,0,0.6]
+  #     - [0,1,0,0.2]
+  #     - [0,0,1,0.12]
+  #     - [0,0,0,1]
+  #   bounds: [0,1e6] 
 
 robot_capsules:
   # - name: 'arm'
@@ -114,7 +139,7 @@ robot_capsules:
   # - name: 'ee'
   #   link_name: 'link05'
   #   link_axis: 0
-  #   radius: 0.05
+  #   radius: 0.055
   #   length: 0.22
   #   spatial_offset: [0,0,0]
   #   rotation_offset: [0,0,0]
@@ -151,24 +176,28 @@ obstacles_capsules:
 spheres_robot:
   - name: 'ee_sphere'
     link_name: 'gripperMover'
-    radius: 0.05  
+    radius: 0.075  
     spatial_offset:  [0.035, 0., 0.] 
     color: [0,0.5,0.5,0.3]
 
 collision_pairs:
-  #  - ['arm','ee']
-  # # - ['ee','ball']
-  #  - ['ee', 'floor']
-  #  - ['forearm','floor']
-  # # - ['forearm', 'ball']
+  # - ['arm','ee']
+  #- ['ee','ball']
+  # - ['ee', 'floor']
+  # - ['forearm','floor']
+  #- ['forearm', 'ball']
   #  - ['ee','fixed1']
   #  - ['ee','fixed2']
   #  - ['ee','fixed3']
   #  - ['forearm','fixed1']
   #  - ['forearm','fixed2']
   #  - ['forearm','fixed3']
-   - ['ee_sphere', 'floor']   
-   - ['ee_sphere', 'ball']
+  - ['ee_sphere', 'floor']   
+  - ['ee_sphere', 'ball']
+  # - ['ee','ball2']
+  # - ['forearm','ball2']
+  # - ['ee','ball3']
+  # - ['forearm','ball3']
 
 
 track_traj: false
@@ -176,10 +205,15 @@ dim_shape_8: 0.3
 offset_traj: [0.37, 0.,0.1]
 theta_rot_traj: [0,0,1.570]
 vel_max_traj: 0.65
-vel_const: false
-n_steps_tracking: 5000
-acc_time: 0.9    # percentage of time used to reach the maximum velocity tracking starting at rest
+vel_const: true
 
+n_steps_tracking: 1000
+acc_time: 0.01    # percentage of time used to reach the maximum velocity tracking starting at rest
+
+circle_rad: 0.13
+circle_traj_vel: 0.0
+circle_center_vel: 0.5
+circle_offset_traj: [0.78,0.4,0.06]      # [0.77,0.4,0.09] 
 noise_mass: 0.
 noise_inertia: 0.
 noise_cm: 0.
