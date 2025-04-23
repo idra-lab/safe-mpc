@@ -23,6 +23,7 @@ def get_ocp(ocp_name, model) -> NaiveOCP:
              'st': SoftTerminalOCP,
              'htwa': HardTerminalOCP,
              'receding': HardTerminalOCP,
+             'real_receding': HardTerminalOCP,
              'parallel': HardTerminalOCP, 
              'real': HardTerminalOCP}
     if ocp_name in ocps:
@@ -36,7 +37,9 @@ def get_ocp_acados(cont_name, model) -> AbstractController:
                     'st': HTWAController,
                     'htwa': HTWAController,
                     'receding': HTWAController,
+                    'real_receding': HTWAController,
                     'parallel': HTWAController,
+                    'parallel2': HTWAController,
                     'st_analytic': HTWAController,
                     'htwa_analytic': HTWAController,
                     'receding_analytic': HTWAController,
@@ -53,7 +56,8 @@ def get_controller(cont_name, model) -> AbstractController:
                     'htwa': HTWAController,
                     'receding': RecedingController,
                     'parallel': ParallelController,
-                    'real': RecedingEquality }
+                    'parallel2': ParalleltwoController2,
+                    'real_receding': RealReceding }
     if cont_name in controllers:
         return controllers[cont_name](model)
     else:

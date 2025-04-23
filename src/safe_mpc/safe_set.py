@@ -39,14 +39,14 @@ class AbstractSafeSet():
         if self.constraints == None:
             return True
         for i,constraint in enumerate(self.constraints_fun):
-            constraint_val =constraint(x)
-            if not(np.array(np.multiply(((self.bounds[i][0]-self.model.params.tol_safe_set)<=constraint_val),(constraint_val<=(self.bounds[i][1]+self.model.params.tol_safe_set)))).all()):  
+            constraint_val = constraint(x)
+            if not(np.multiply(((self.bounds[i][0]-self.model.params.tol_safe_set)<=constraint_val),(constraint_val<=(self.bounds[i][1]+self.model.params.tol_safe_set)))):  
                 return False
         return True
 
 # n_dof_safe_set indicates how many dofs are considered in the safe set. For example, 3 means joints 1,2,3 are considered.
 class NetSafeSet(AbstractSafeSet):
-    def __init__(self,model,params, index_alpha):
+    def __init__(self,model,params):
         super().__init__(model,params)
 
         model_net = NeuralNetwork(*self.model.params.net_size ,self.model.params.act_fun)
@@ -63,7 +63,7 @@ class NetSafeSet(AbstractSafeSet):
         vel_dir = x_cp[n_dof:n_dof + self.model.params.n_dof_safe_set] / vel_norm
         state = cs.vertcat(pos, vel_dir)
 
-        self.l4c_model = l4c.L4CasADi(model_net.linear_stack,
+        self.l4c_model = l4c.L4CasADi(model_net,
                                       device='cpu',
                                       name=f'{self.model.params.urdf_name}_model',
                                       build_dir=f'{self.model.params.GEN_DIR}nn_{self.model.params.urdf_name}')
@@ -78,7 +78,7 @@ class NetSafeSet(AbstractSafeSet):
         self.nn_func_x = cs.Function('nn_func_x', [self.model.x], [nn_model_alpha_fixed])
         self.constraints_fun.append(self.nn_func_x)
 
-        self.bounds.append([0,1e6])
+        self.bounds.append([np.array([0.]),np.array([1e6])])
 
 class AnalyticSafeSet(AbstractSafeSet):
     def __init__(self,model,params):
