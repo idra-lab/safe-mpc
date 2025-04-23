@@ -1,7 +1,7 @@
 import pickle
 import numpy as np
 from safe_mpc.parser import Parameters, parse_args
-from safe_mpc.abstract import AdamModel
+from safe_mpc.env_model import AdamModel
 from safe_mpc.utils import obstacles
 from safe_mpc.controller import SafeBackupController
 
