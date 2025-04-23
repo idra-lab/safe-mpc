@@ -5,6 +5,7 @@ from safe_mpc.parser import Parameters, parse_args
 from safe_mpc.env_model import AdamModel
 from safe_mpc.utils import get_controller
 from safe_mpc.controller import SafeBackupController
+from safe_mpc.cost_definition import *
 
 
 CALLBACK = True
@@ -17,25 +18,37 @@ params.act = args['activation']
 params.alpha = args['alpha']
 params.backhor = args['back_hor']
 horizon = args['horizon']
+params.N=horizon
 model = AdamModel(params)
 model.ee_ref = params.ee_ref
 nq = model.nq
 
+build_controllers=args['build']
+
 cont_name = args['controller']
 controller = get_controller(cont_name, model)
+# cost_controller = TrackingMovingCircleNLS(model,params.Q_weight,params.R_weight)
+cost_controller = ReachTargetEXT(model,params.Q_weight,params.R_weight)
+cost_controller.set_solver_cost(controller)
+controller.build_controller(build_controllers)
 
 param_backup = Parameters(model_name, rti=True)
 param_backup.use_net = None
+param_backup.N = args['back_hor']
 param_backup.solver_type = 'SQP_RTI'
-param_backup.build = args['build']
 model_backup = AdamModel(param_backup)
 safe_ocp = SafeBackupController(model_backup)
+cost_controller_backup = ZeroCost(model_backup)
+cost_controller_backup.set_solver_cost(safe_ocp)
+safe_ocp.build_controller(build=args['build'])
+
 controller.resetHorizon(horizon)
 safe_ocp.resetHorizon(params.back_hor)
 
 traj__track = 'traj_track' if controller.model.params.track_traj else "" 
 
 data = pickle.load(open(f'{params.DATA_DIR}{model_name}_{cont_name}_{horizon}hor_{int(params.alpha)}sm_use_net{controller.model.params.use_net}_{traj__track}_guess.pkl', 'rb'))
+print(f'{params.DATA_DIR}{model_name}_{cont_name}_{horizon}hor_{int(params.alpha)}sm_use_net{controller.model.params.use_net}_{traj__track}_guess.pkl')
 
 x_guess = data['xg']
 u_guess = data['ug']
@@ -53,7 +66,8 @@ counters = np.zeros(5)
 not_conv = 0
 tau_viol = []
 kp, kd = 0.1, 1e2
-for i in range(0,1+0*x_init.shape[0]):
+print(x_init.shape[0])
+for i in range(0,x_init.shape[0]):
     traj_costs[i] = 0
     print(f'Simulation {i + 1}/{params.test_num}')
     x0 = x_init[i]
@@ -210,6 +224,10 @@ for field, t in zip(controller.time_fields, np.quantile(times, 0.99, axis=0)):
     print(f"{field:<20} -> {t}")
     
 # Save simulation data
+
+if cont_name == 'st':
+    cont_name = 'st_hard'
+    print(cont_name)
  
 with open(f'{params.DATA_DIR}{model_name}_{cont_name}_use_net{controller.model.params.use_net}_{horizon}hor_{int(params.alpha)}sm_{traj__track}mpc.pkl', 'wb') as f:
     pickle.dump({'x': np.asarray(x_sim_list),
