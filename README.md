@@ -2,6 +2,9 @@
 
 This repo contains algorithms for Model Predictive Control, ensuring safety constraints and recursive feasibility.
 
+## NOTICE
+Check last version of the code in branch `devel`
+
 ## Installation
 - Clone the repository\
 `git clone https://github.com/idra-lab/safe-mpc.git`
