@@ -177,7 +177,7 @@ class AdamModel:
                                      tau <= self.tau_max + self.params.tol_tau))
 
     def checkRunningConstraints(self, x, u):
-        return self.checkStateConstraints(x) and self.checkTorqueBounds(x,u)
+        return self.checkStateConstraints(x) and self.checkTorqueConstraints(x,u)
 
     
     def integrate(self, x, u):
@@ -254,6 +254,7 @@ class AdamModel:
                                         constraint_list_N[-1][1]-self.params.tol_obs,constraint_list_N[-1][2]+self.params.tol_obs])
             elif pair['type'] == 'sphere-sphere':
                 constr_expr = sphere_sphere_dist(pair['elements'][1],pair['elements'][0]['fk'])
+                #constr_expr = (self.t_glob - pair['elements'][1]['position']).T @ (self.t_glob - pair['elements'][1]['position'])
                 constraint_list_0.append([constr_expr, (pair['elements'][0]['radius']+pair['elements'][1]['radius'])**2,1e6])
                 constraint_list_1_N_minus_1.append(constraint_list_0[-1])
                 constraint_list_N.append(constraint_list_0[-1])
@@ -266,21 +267,5 @@ class AdamModel:
                 constraint_list_N.append(constraint_list_0[-1])
                 self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}",[self.x],[constraint_list_N[-1][0]]), \
                                         constraint_list_N[-1][1]-self.params.tol_obs,constraint_list_N[-1][2]+self.params.tol_obs])
-        # else:
-        #     for i,obs in enumerate(self.params.obstacles):
-        #         if obs['type'] == 'sphere':
-        #             constr_expr = sphere_sphere_dist(obs,self.t_glob)
-        #             constraint_list_0.append([constr_expr, (self.params.ee_radius+obs['radius'])**2,1e6])
-        #             constraint_list_1_N_minus_1.append(constraint_list_0[-1])
-        #             constraint_list_N.append(constraint_list_0[-1])
-        #             self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}",[self.x],[constraint_list_N[-1][0]]), \
-        #                                   constraint_list_N[-1][1]-self.params.tol_obs,constraint_list_N[-1][2]+self.params.tol_obs])
-        #         if obs['type'] == 'plane':
-        #             constr_expr = plane_sphere_dist(obs,self.t_glob)
-        #             constraint_list_0.append([constr_expr,obs['bounds'][0] + self.params.ee_radius,obs['bounds'][1] - self.params.ee_radius])
-        #             constraint_list_1_N_minus_1.append(constraint_list_0[-1])
-        #             constraint_list_N.append(constraint_list_0[-1])
-        #             self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}",[self.x],[constraint_list_N[-1][0]]), \
-        #                                   constraint_list_N[-1][1]-self.params.tol_obs,constraint_list_N[-1][2]+self.params.tol_obs])
-
+       
         return constraint_list_0,constraint_list_1_N_minus_1,constraint_list_N
