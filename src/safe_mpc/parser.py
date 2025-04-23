@@ -28,7 +28,7 @@ def parse_args():
 def align_vectors(a, b):
     """
     Function used only for obstacle capsule visualization purposes. Its purpose is to find the transformation matrix to get vector b when applied to a.
-    The matrix is saved in as the transformation for fixed capsule, and a used there is always [0,1,0] because it is the default cylinder's 
+    The matrix is saved in as the transformation for fixed capsule, and a used there is always [0,1,0] because it is the default cylinder's
     axis direction (a capsule is rendered using 3 solids: 2 sphere and 1 cylinder).
     """
     b = b / np.linalg.norm(b) # normalize a
@@ -60,7 +60,7 @@ class Parameters:
         self.GEN_DIR = os.path.join(self.ROOT_DIR, 'generated/')
         self.NN_DIR = os.path.join(self.ROOT_DIR, 'nn_models/' + urdf_name + '/')
         self.ROBOTS_DIR = os.path.join(self.ROOT_DIR, 'robots/')
-            
+
         self.robot_urdf = f'{self.ROBOTS_DIR}/{urdf_name}_description/urdf/{urdf_name}.urdf'
 
         self.robot_descr = URDF.from_xml_file(self.robot_urdf)
@@ -76,11 +76,11 @@ class Parameters:
         self.n_steps = int(parameters['n_steps'])
         self.cpu_num = int(parameters['cpu_num'])
         self.build = False
-        
+
         self.N = int(parameters['N'])
         self.back_hor = int(parameters['back_hor'])
         self.dt = float(parameters['dt'])
-        
+
         self.alpha = float(parameters['alpha'])
         self.act = str(parameters['act_fun'])
         nls = {
@@ -111,10 +111,10 @@ class Parameters:
         self.levenberg_marquardt = float(parameters['levenberg_marquardt'])
         self.ext_flag = parameters['ext_flag']
 
-        self.ipopt_opts = dict() 
+        self.ipopt_opts = dict()
         for entry in parameters['ipopt_opts']:
             self.ipopt_opts[entry] = parameters['ipopt_opts'][entry]
-        
+
         self.tol_x = float(parameters['tol_x'])
         self.tol_tau = float(parameters['tol_tau'])
         self.tol_dyn = float(parameters['tol_dyn'])
@@ -136,8 +136,8 @@ class Parameters:
         # For cartesian constraint
         self.obs_flag = bool(parameters['obs_flag'])
         self.abort_flag = bool(parameters['abort_flag'])
-        
-        self.frame_name = parameters['frame_ee'] 
+
+        self.frame_name = parameters['frame_ee']
         self.ee_radius = float(parameters['ee_radius'])
 
         self.obs_string = parameters['obs_string']
@@ -156,7 +156,6 @@ class Parameters:
                 else: obs[entry] = obstacle[entry]
             self.obstacles.append(obs)
 
-        self.use_capsules=bool(parameters['use_capsules'])
         # capsules
         # robot capsules
         self.robot_capsules = []
@@ -169,40 +168,31 @@ class Parameters:
             for capsule in parameters['obstacles_capsules']:
                 self.obst_capsules.append(self.create_fixed_capsule(capsule))
 
-        # self.shperes on robot
+        # self.spheres on robot
         self.spheres_robot = []
-        for sphere_robot in parameters['spheres_robot']:
-            sphere=dict()
-            for entry in sphere_robot:
-                sphere[entry] = sphere_robot[entry]
-            self.spheres_robot.append(sphere)
-                    
+        if parameters['spheres_robot'] != None:
+            for sphere_robot in parameters['spheres_robot']:
+                sphere=dict()
+                for entry in sphere_robot:
+                    sphere[entry] = sphere_robot[entry]
+                self.spheres_robot.append(sphere)
+
         self.collisions_pairs = []
-        if self.use_capsules:
-        # assign pairs 
-            if parameters['collision_pairs'] == None:
-                for capsule_one in self.robot_capsules:
-                    for capsule_two in self.robot_capsules:
-                        if capsule_one['name'] != capsule_two['name']:
-                            self.collisions_pairs.append(self.assign_pairs(capsule_one['name'],capsule_two['name'], self.obstacles, self.robot_capsules))
-                    for capsule_two in self.obst_capsules:
-                        self.collisions_pairs.append(self.assign_pairs(capsule_one['name'],capsule_two['name'], self.obstacles, self.obst_capsules))
-                    for obst in self.obstacles:
-                        self.collisions_pairs.append(self.assign_pairs(capsule_one['name'],obst['name'], self.obstacles, self.obstacles))
-            else:
-                for pair in parameters['collision_pairs']:
-                    self.collisions_pairs.append(self.assign_pairs(pair[0],pair[1],self.obstacles,self.robot_capsules+self.obst_capsules,self.spheres_robot)) 
-        
+        # assign pairs
+        if parameters['collision_pairs'] == None:
+            for capsule_one in self.robot_capsules:
+                for capsule_two in self.robot_capsules:
+                    if capsule_one['name'] != capsule_two['name']:
+                        self.collisions_pairs.append(self.assign_pairs(capsule_one['name'],capsule_two['name'], self.obstacles, self.robot_capsules))
+                for capsule_two in self.obst_capsules:
+                    self.collisions_pairs.append(self.assign_pairs(capsule_one['name'],capsule_two['name'], self.obstacles, self.obst_capsules))
+                for obst in self.obstacles:
+                    self.collisions_pairs.append(self.assign_pairs(capsule_one['name'],obst['name'], self.obstacles, self.obstacles))
+        else:
+            for pair in parameters['collision_pairs']:
+                self.collisions_pairs.append(self.assign_pairs(pair[0],pair[1],self.obstacles,self.robot_capsules+self.obst_capsules,self.spheres_robot))
+
         self.track_traj = bool(parameters['track_traj'])
-        if self.track_traj: 
-            self.n_steps=int(parameters['n_steps_tracking'])
-            self.n_steps_tracking=int(parameters['n_steps_tracking'])
-            self.dim_shape_8 = float(parameters['dim_shape_8'])
-            self.offset_traj = np.array(parameters['offset_traj'])
-            self.theta_rot_traj = np.array(parameters['theta_rot_traj'])
-            self.vel_max_traj = float(parameters['vel_max_traj'])
-            self.vel_const = bool(parameters['vel_const'])
-            self.acc_time = float(parameters['acc_time'])
 
         self.noise_mass = float(parameters['noise_mass'])
         self.noise_inertia = float(parameters['noise_inertia'])
@@ -218,7 +208,7 @@ class Parameters:
         for a sequence of rotation z-y-x, w.r.t. to the local link frame, to adjust the capsule orientation. Finally color is required only for visualization,
         the first 3 values represent the RGB triple, the last is the transparency (0 total transparency, 1 no transparency).
         """
-        # first point defined by offset from link origin, second length offset from the first one 
+        # first point defined by offset from link origin, second length offset from the first one
         # capsule['end_points'] = [np.hstack((spatial_offset,np.ones(1))), np.hstack((spatial_offset,np.ones(1)))]
         capsule['type'] = 'moving_capsule'
         capsule['end_points'] = [np.hstack((np.zeros(3),np.ones(1))), np.hstack((np.zeros(3),np.ones(1)))]
@@ -232,13 +222,13 @@ class Parameters:
     def create_fixed_capsule(self,capsule):
         """
         Create a fixed capsule, assigning it a name and a radius for the shape. The length instead is determined by the end points of the capsule's
-        segment, the two next arguments. Color works as in the case of the moving capsule. 
+        segment, the two next arguments. Color works as in the case of the moving capsule.
         """
         capsule['type'] = 'fixed_capsule'
         capsule['end_points'] = np.array([capsule['point_A'],capsule['point_B']])
         capsule['length'] = np.linalg.norm(capsule['end_points'][0]-capsule['end_points'][1])
         capsule['end_points_fk'] = capsule['end_points']
-        capsule['end_points_T_fun'] = align_vectors(np.array([0,1,0]),capsule['end_points'][1]-capsule['end_points'][0])     
+        capsule['end_points_T_fun'] = align_vectors(np.array([0,1,0]),capsule['end_points'][1]-capsule['end_points'][0])
         return capsule
 
     def assign_pairs(self,obj1_name,obj2_name,obstacles_list,capsules_list,spheres_list):
@@ -265,34 +255,39 @@ class Parameters:
                 pair['elements'][1] = capsule
                 if pair['elements'][0] != None:
                     pair['type'] = 'capsule-capsule'
-                break 
+                break
         for obstacle in obstacles_list:
             if obj2_name == obstacle['name']:
                 pair['elements'][1] = obstacle
                 if (pair['elements'][0] != None and obstacle['type'] == 'sphere-obs'): pair['type'] = 'capsule-sphere'
                 elif (pair['elements'][0] != None and obstacle['type'] == 'plane'): pair['type'] = 'capsule-plane'
-                break 
+                break
         for sphere in spheres_list:
             if obj1_name == sphere['name']:
                 pair['elements'][0] = sphere
                 for obstacle in obstacles_list:
                     if obj2_name == obstacle['name']:
                         pair['elements'][1] = obstacle
-                        if (pair['elements'][0] != None and pair['elements'][1]['type'] == 'sphere-obs'): 
-                            pair['type'] = 'sphere-sphere' 
+                        if (pair['elements'][0] != None and pair['elements'][1]['type'] == 'sphere-obs'):
+                            pair['type'] = 'sphere-sphere'
+                            print(f"pair: {pair['elements'][0]['name']} -  {pair['elements'][1]['name']}")
                             return pair
-                        elif (pair['elements'][0] != None and pair['elements'][1]['type'] == 'plane'): 
+                        elif (pair['elements'][0] != None and pair['elements'][1]['type'] == 'plane'):
                             pair['type'] = 'sphere-plane'
-                            return pair 
+                            print(f"pair: {pair['elements'][0]['name']} -  {pair['elements'][1]['name']}")
+                            return pair
             if obj2_name == sphere['name']:
                 pair['elements'][0] = sphere
                 for obstacle in obstacles_list:
                     if obj1_name == obstacle['name']:
                         pair['elements'][1] = obstacle
-                        if (pair['elements'][0] != None and pair['elements'][1]['type'] == 'sphere-obs'): 
-                            pair['type'] = 'sphere-sphere' 
+                        if (pair['elements'][0] != None and pair['elements'][1]['type'] == 'sphere-obs'):
+                            pair['type'] = 'sphere-sphere'
+                            print(f"pair: {pair['elements'][0]['name']} -  {pair['elements'][1]['name']}")
                             return pair
-                        elif (pair['elements'][0] != None and pair['elements'][1]['type'] == 'plane'): 
+                        elif (pair['elements'][0] != None and pair['elements'][1]['type'] == 'plane'):
                             pair['type'] = 'sphere-plane'
+                            print(f"pair: {pair['elements'][0]['name']} -  {pair['elements'][1]['name']}")
                             return pair
+        print(f"pair: {pair['elements'][0]['name']} -  {pair['elements'][1]['name']}")
         return pair
