@@ -19,6 +19,10 @@ class NeuralNetwork(nn.Module):
             activation,
         )
     
+    def forward(self, x):
+        out = self.linear_stack(x) 
+        return out
+    
 class AbstractSafeSet():
     def __init__(self,model,params):
         self.model = model
