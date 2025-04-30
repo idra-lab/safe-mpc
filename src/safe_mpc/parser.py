@@ -23,6 +23,8 @@ def parse_args():
     parser.add_argument('-a', '--activation', type=str, default='gelu',
                         help='Activation function for the neural network')
     parser.add_argument('--back_hor',type=int,default=45,help='Horizon of the backup controller')
+    parser.add_argument('--noise', type=float, default=0.,
+                        help='Noise in the model dynaimcs')
     return vars(parser.parse_args())
 
 def align_vectors(a, b):

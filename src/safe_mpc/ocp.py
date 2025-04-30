@@ -185,7 +185,7 @@ class InverseKinematicsOCP:
         opts = {
             'ipopt.print_level': 0,
             'print_time': 0,
-            'ipopt.tol': 1e-6,
+            'ipopt.tol': 10e-6,
             'ipopt.constr_viol_tol': 1e-6,
             'ipopt.compl_inf_tol': 1e-6,
             'ipopt.hessian_approximation': 'limited-memory',

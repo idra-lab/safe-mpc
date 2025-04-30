@@ -245,6 +245,15 @@ class TrackingMovingCircleNLS(ReachTargetNLS,AbstractTrackingMovingCircle):
     def update_trajectory(self):
         self.traj = generate_moving_circle_trajectory(self.model.params)
 
+class TrackingMovingCircleEXT(ReachTargetEXT,AbstractTrackingMovingCircle):
+    def __init__(self,model,Q,R):
+        super().__init__(model,Q,R)
+        AbstractTrackingMovingCircle.__init__(self,model)
+        self.cost_type = 'EXTERNAL'
+
+    def update_trajectory(self):
+        self.traj = generate_moving_circle_trajectory(self.model.params)
+
 def generate_moving_circle_trajectory(params):
     if params.vel_const == False:
         velocity = 0

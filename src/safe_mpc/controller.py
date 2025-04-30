@@ -391,7 +391,7 @@ class RecedingController(STWAController):
         bounds = self.safe_set.get_bounds()
         constraint_num = 0
         for i, constr in enumerate(safe_set_constraints):
-            self.nl_con.append([constr,bounds[i][0],bounds[i][1]])
+            self.nl_con.append([casadi_if_else(self.cs_if_else_param,constr,bounds[i]),bounds[i][0],bounds[i][1]])
             constraint_num += constr.shape[0]
 
         if self.model.params.use_net:
@@ -627,30 +627,6 @@ class ParalleltwoController2(RecedingController):
         super().__init__(model)
         self.r = self.N
         self.constraints = np.linspace(1,self.N,self.N).round().astype(int).tolist()
-
-    def runningSetConstraint(self, soft=True):
-        from .utils import casadi_if_else
-        # Suppose that the NN model is already set (same for external model shared lib)
-        num_nl = np.sum([c[0].shape[0] for c in self.nl_con])
-        safe_set_constraints = self.safe_set.get_constraints()
-        bounds = self.safe_set.get_bounds()
-        constraint_num = 0
-        for i, constr in enumerate(safe_set_constraints):
-            self.nl_con.append([constr,bounds[i][0],bounds[i][1]])
-            constraint_num += constr.shape[0]
-
-        if self.model.params.use_net:
-            self.ocp.solver_options.model_external_shared_lib_dir = self.safe_set.l4c_model.shared_lib_dir
-            self.ocp.solver_options.model_external_shared_lib_name = self.safe_set.l4c_model.name
-
-        if soft:
-            self.idxhs = np.hstack((self.idxhs,np.arange(num_nl, num_nl + constraint_num)))
-
-            # Set zl initially to zero, then apply receding constraint in the step method
-            self.zl = np.hstack((self.zl,self.model.params.ws_r*np.ones(self.idxhs.size)))
-            self.zu = np.hstack((self.zu,np.zeros(self.idxhs.size)))
-            self.Zl = np.hstack((self.Zl,np.zeros(self.idxhs.size)))
-            self.Zu = np.hstack((self.Zu,np.zeros(self.idxhs.size)))
 
     def additionalSetting(self):
         # Terminal constraint before, since it construct the nn model
