@@ -59,7 +59,7 @@ abort_flag: true         # activation of abort mechanism for receding MPC
 use_net: true            # use the network safe set if true, otherwise analytic safe set
 
 # network_path: 'nn_models/z1/4dof_gelu_dt_5_line_trackingms.pt'   # path to network file
-network_path: '../nn_models/z1/4dof_gelu_obs_track_line.pt'
+network_path: '../nn_models/z1/4dof_gelu_obs.pt'
 network_size: [8, 256, 1]                       # input, hidden and output size
 act_fun: 'gelu'
 
@@ -90,69 +90,69 @@ obstacles:
     bounds: [0,1e6]   # bounds: z position of floor and ceil
     real_bound: 0     # 0 if lower, 1 if upper
 
-  # - name: 'ball'
+  - name: 'ball'
+    type: 'sphere-obs'
+    radius: 0.12
+    color: [0,1,0,1]
+    position: [0.6,0.,0.12]
+    transform: 
+      - [1,0,0,0.6]
+      - [0,1,0,0]
+      - [0,0,1,0.12]
+      - [0,0,0,1]
+    bounds: [0,1e6]     # minimum and maximum distance from the sphere's surface. Minimum distance 0 means ball can be only touched lightly. 
+
+  # - name: 'ball2'
   #   type: 'sphere-obs'
-  #   radius: 0.12
-  #   color: [0,1,0,1]
-  #   position: [0.6,0.,0.12]
-  #   transform: 
+  #   radius: 0.05
+  #   color: [0,1,1,1]
+  #   position: [0.6,-0.2,0.12]
+  #   transform:
   #     - [1,0,0,0.6]
-  #     - [0,1,0,0]
+  #     - [0,1,0,-0.2]
   #     - [0,0,1,0.12]
   #     - [0,0,0,1]
-  #   bounds: [0,1e6]     # minimum and maximum distance from the sphere's surface. Minimum distance 0 means ball can be only touched lightly. 
+  #   bounds: [0,1e6] 
 
-  - name: 'ball2'
-    type: 'sphere-obs'
-    radius: 0.05
-    color: [0,1,1,1]
-    position: [0.6,-0.2,0.12]
-    transform:
-      - [1,0,0,0.6]
-      - [0,1,0,-0.2]
-      - [0,0,1,0.12]
-      - [0,0,0,1]
-    bounds: [0,1e6] 
-
-  - name: 'ball3'
-    type: 'sphere-obs'
-    radius: 0.05
-    color: [0,1,1,1]
-    position: [0.6,0.2,0.12]
-    transform:
-      - [1,0,0,0.6]
-      - [0,1,0,0.2]
-      - [0,0,1,0.12]
-      - [0,0,0,1]
-    bounds: [0,1e6] 
+  # - name: 'ball3'
+  #   type: 'sphere-obs'
+  #   radius: 0.05
+  #   color: [0,1,1,1]
+  #   position: [0.6,0.2,0.12]
+  #   transform:
+  #     - [1,0,0,0.6]
+  #     - [0,1,0,0.2]
+  #     - [0,0,1,0.12]
+  #     - [0,0,0,1]
+  #   bounds: [0,1e6] 
 
 robot_capsules:
-  - name: 'arm'
-    link_name: 'link02'
-    link_axis: 0
-    radius: 0.05
-    length: 0.35
-    spatial_offset: [0,0,0]
-    rotation_offset: [0,0,0]
-    color: [1,0,0,0.3]
+#   - name: 'arm'
+#     link_name: 'link02'
+#     link_axis: 0
+#     radius: 0.05
+#     length: 0.35
+#     spatial_offset: [0,0,0]
+#     rotation_offset: [0,0,0]
+#     color: [1,0,0,0.3]
   
-  - name: 'ee'
-    link_name: 'link05'
-    link_axis: 0
-    radius: 0.055
-    length: 0.22
-    spatial_offset: [0,0,0]
-    rotation_offset: [0,0,0]
-    color: [1,0,0,0.3]
+#   - name: 'ee'
+#     link_name: 'link05'
+#     link_axis: 0
+#     radius: 0.055
+#     length: 0.22
+#     spatial_offset: [0,0,0]
+#     rotation_offset: [0,0,0]
+#     color: [1,0,0,0.3]
 
-  - name: 'forearm'
-    link_name: 'link03'
-    link_axis: 0
-    radius: 0.05
-    length: 0.16
-    spatial_offset: [0.06,0,0.05]
-    rotation_offset: [0,-0.06283,0]
-    color: [0,0,1,0.3]
+#   - name: 'forearm'
+#     link_name: 'link03'
+#     link_axis: 0
+#     radius: 0.05
+#     length: 0.16
+#     spatial_offset: [0.06,0,0.05]
+#     rotation_offset: [0,-0.06283,0]
+#     color: [0,0,1,0.3]
 
 obstacles_capsules:
   # - name: 'fixed1'
@@ -174,17 +174,17 @@ obstacles_capsules:
   #   color: [0, 1, 1, 1]
 
 spheres_robot:
-  # - name: 'ee_sphere'
-  #   link_name: 'gripperMover'
-  #   radius: 0.075  
-  #   spatial_offset:  [0.035, 0., 0.] 
-  #   color: [0,0.5,0.5,0.3]
+  - name: 'ee_sphere'
+    link_name: 'gripperMover'
+    radius: 0.075  
+    spatial_offset:  [0.035, 0., 0.] 
+    color: [0,0.5,0.5,0.3]
 
 collision_pairs:
-  - ['arm','ee']
+  # - ['arm','ee']
   #- ['ee','ball']
-  - ['ee', 'floor']
-  - ['forearm','floor']
+  # - ['ee', 'floor']
+  # - ['forearm','floor']
   #- ['forearm', 'ball']
   #  - ['ee','fixed1']
   #  - ['ee','fixed2']
@@ -192,18 +192,18 @@ collision_pairs:
   #  - ['forearm','fixed1']
   #  - ['forearm','fixed2']
   #  - ['forearm','fixed3']
-  # - ['ee_sphere', 'floor']   
-  # - ['ee_sphere', 'ball']
-  - ['ee','ball2']
-  - ['forearm','ball2']
-  - ['ee','ball3']
-  - ['forearm','ball3']
+  - ['ee_sphere', 'floor']   
+  - ['ee_sphere', 'ball']
+  # - ['ee','ball2']
+  # - ['forearm','ball2']
+  # - ['ee','ball3']
+  # - ['forearm','ball3']
 
 
 track_traj: true
 dim_shape_8: 0.3
-offset_traj: [0.37, 0.,0.1]
-theta_rot_traj: [0,0,1.570]
+offset_traj: [0.6, 0.,0.3]
+theta_rot_traj: [0,1.570,1.570]
 vel_max_traj: 0.65
 vel_const: true
 
