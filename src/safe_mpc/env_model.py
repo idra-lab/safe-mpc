@@ -30,7 +30,7 @@ class AdamModel:
 
         joint_names = [joint.name for joint in robot_joints]
 
-        randomize_model(params.robot_urdf, noise_mass_percentage = self.params.noise_mass , noise_inertia_percentage = self.params.noise_inertia, noise_cm_position_percentage = self.params.noise_cm)
+        randomize_model(params.robot_urdf, noise_mass = 0, noise_inertia = 0, noise_cm_position = 0)
 
         # Formal assumed model, used by controller
         self.kin_dyn = KinDynComputations(params.robot_urdf, joint_names, self.params.robot_descr.get_root())        
@@ -194,13 +194,27 @@ class AdamModel:
         x_next = np.array(self.f_fun(x,u)).squeeze()
         return x_next, u
 
+    def integrate_controller_model(self, x, u):
+        x_next = np.zeros(self.nx)
+        tau = np.array(self.tau_fun(x, u).T)
+        if not self.checkTorqueBounds(tau):
+            # Cannot exceed the torque limits --> sat and compute forward dynamics on real system 
+            H_b = np.eye(4)
+            tau_sat = np.clip(tau, self.tau_min, self.tau_max)
+            M = np.array(self.mass(H_b, x[:self.nq])[6:, 6:])
+            h = np.array(self.bias(H_b, x[:self.nq], np.zeros(6), x[self.nq:])[6:])
+            u = np.linalg.solve(M, (tau_sat.T - h)).T
+        x_next[:self.nq] = x[:self.nq] + self.params.dt * x[self.nq:] + 0.5 * self.params.dt**2 * u
+        x_next[self.nq:] = x[self.nq:] + self.params.dt * u
+        return x_next, u
+    
     def checkDynamicsConstraints(self, x, u):
         # Rollout the control sequence
         n = np.shape(u)[0]
         x_sim = np.zeros((n + 1, self.nx))
         x_sim[0] = np.copy(x[0])
         for i in range(n):
-            x_sim[i + 1], _ = self.integrate(x_sim[i], u[i])
+            x_sim[i + 1], _ = self.integrate_controller_model(x_sim[i], u[i])
         # Check if the rollout state trajectory is almost equal to the optimal one
         return np.linalg.norm(x - x_sim) < self.params.tol_dyn * np.sqrt(n+1) 
     
@@ -209,6 +223,7 @@ class AdamModel:
         for i in range(len(x_tmp)):
             for pair in self.collisions_constr_fun:
                 if not(pair[1]<=pair[0](x_tmp[i])<=pair[2]):
+                    print(f'collision: {pair[0].name()}')
                     return False
             return True
 
@@ -236,36 +251,45 @@ class AdamModel:
                                         (pair['elements'][0]['radius']+pair['elements'][1]['radius'])**2,1e6])
                 constraint_list_1_N_minus_1.append(constraint_list_0[-1])
                 constraint_list_N.append(constraint_list_0[-1])
-                self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}",[self.x],[constraint_list_N[-1][0]]), \
+                self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}_{pair['elements'][0]['name']}_{pair['elements'][1]['name']}",[self.x],[constraint_list_N[-1][0]]), \
                                         constraint_list_N[-1][1]-self.params.tol_obs,constraint_list_N[-1][2]+self.params.tol_obs])
             elif pair['type'] == 'capsule-sphere':
                 constraint_list_0.append([ball_segment_dist(*pair['elements'][0]['end_points_fk'],pair['elements'][0]['length'],pair['elements'][1]['position']), \
                                         (pair['elements'][1]['radius']+pair['elements'][0]['radius'])**2,1e6])
                 constraint_list_1_N_minus_1.append(constraint_list_0[-1])
                 constraint_list_N.append(constraint_list_0[-1])
-                self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}",[self.x],[constraint_list_N[-1][0]]), \
+                self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}_{pair['elements'][0]['name']}_{pair['elements'][1]['name']}",[self.x],[constraint_list_N[-1][0]]), \
                                         constraint_list_N[-1][1]-self.params.tol_obs,constraint_list_N[-1][2]+self.params.tol_obs])
             elif pair['type'] == 'capsule-plane':
                 for point in pair['elements'][0]['end_points_fk']:
                     constraint_list_0.append([point[pair['elements'][1]['perpendicular_axis']],pair['elements'][1]['bounds'][0]+pair['elements'][0]['radius'],pair['elements'][1]['bounds'][1]-pair['elements'][0]['radius']])
                     constraint_list_1_N_minus_1.append(constraint_list_0[-1])
                     constraint_list_N.append(constraint_list_0[-1])
-                    self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}",[self.x],[constraint_list_N[-1][0]]), \
-                                        constraint_list_N[-1][1]-self.params.tol_obs,constraint_list_N[-1][2]+self.params.tol_obs])
+                    self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}_{pair['elements'][0]['name']}_{pair['elements'][1]['name']}",[self.x],[constraint_list_N[-1][0]]), \
+                                        constraint_list_N[-1][1]-1*self.params.tol_obs,constraint_list_N[-1][2]+1*self.params.tol_obs])
             elif pair['type'] == 'sphere-sphere':
-                constr_expr = sphere_sphere_dist(pair['elements'][1],pair['elements'][0]['fk'])
-                #constr_expr = (self.t_glob - pair['elements'][1]['position']).T @ (self.t_glob - pair['elements'][1]['position'])
+                #constr_expr = sphere_sphere_dist(pair['elements'][1],pair['elements'][0]['fk'])
+                constr_expr = (self.t_glob - pair['elements'][1]['position']).T @ (self.t_glob - pair['elements'][1]['position'])
                 constraint_list_0.append([constr_expr, (pair['elements'][0]['radius']+pair['elements'][1]['radius'])**2,1e6])
                 constraint_list_1_N_minus_1.append(constraint_list_0[-1])
                 constraint_list_N.append(constraint_list_0[-1])
-                self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}",[self.x],[constraint_list_N[-1][0]]), \
+                self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}_{pair['elements'][0]['name']}_{pair['elements'][1]['name']}",[self.x],[constraint_list_N[-1][0]]), \
                                         constraint_list_N[-1][1]-self.params.tol_obs,constraint_list_N[-1][2]+self.params.tol_obs])
             if pair['type'] == 'sphere-plane':
                 constr_expr = plane_sphere_dist(pair['elements'][1],pair['elements'][0]['fk'])
                 constraint_list_0.append([constr_expr,pair['elements'][1]['bounds'][0] + pair['elements'][0]['radius'],pair['elements'][1]['bounds'][1] - pair['elements'][0]['radius']])
                 constraint_list_1_N_minus_1.append(constraint_list_0[-1])
                 constraint_list_N.append(constraint_list_0[-1])
-                self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}",[self.x],[constraint_list_N[-1][0]]), \
+                self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}_{pair['elements'][0]['name']}_{pair['elements'][1]['name']}",[self.x],[constraint_list_N[-1][0]]), \
                                         constraint_list_N[-1][1]-self.params.tol_obs,constraint_list_N[-1][2]+self.params.tol_obs])
        
         return constraint_list_0,constraint_list_1_N_minus_1,constraint_list_N
+    
+    def update_randomized_dynamics(self):
+        # Model with noise
+        self.kin_dyn_noisy = KinDynComputations(self.params.robot_urdf[:-5] + '_randomized.urdf', self.joint_names, self.params.robot_descr.get_root())        
+        self.kin_dyn_noisy.set_frame_velocity_representation(adam.Representations.MIXED_REPRESENTATION)
+        self.mass_noisy = self.kin_dyn_noisy.mass_matrix_fun()                           # Mass matrix
+        self.bias_noisy = self.kin_dyn_noisy.bias_force_fun()                            # Nonlinear effects  
+        self.gravity_noisy = self.kin_dyn_noisy.gravity_term_fun()                       # Gravity vector
+        self.fk_noisy = self.kin_dyn_noisy.forward_kinematics_fun(self.params.frame_name)     # Forward kinematics

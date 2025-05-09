@@ -14,6 +14,8 @@ args = parse_args()
 model_name = args['system']
 params = Parameters(model_name)
 
+np.random.seed(0)
+
 
 ### METHODS ###
 
@@ -112,35 +114,41 @@ def sphere_sphere_dist(obs,ee_expr):
 def plane_sphere_dist(obs,ee_expr):
     return ee_expr[obs['perpendicular_axis']] - obs['bounds'][obs['real_bound']]
 
-def randomize_model(urdf_file_path,noise_mass_percentage=0, noise_inertia_percentage=0, noise_cm_position_percentage=0):
-    inertia_fields = ['ixx','iyy','izz', 'ixy', 'iyz' , 'ixz']
-    # Load the URDF file
-    tree = ET.parse(urdf_file_path)
-    root = tree.getroot()
-    links = root.findall('link')
-    for link in links:
-        inertial = link.find('inertial')
-        if inertial is not None:
-            mass=inertial.find('mass')
-            noise = float(mass.get('value')) * noise_mass_percentage
-            new_mass = float(mass.get('value')) + np.random.uniform(-noise, noise)
-            mass.set('value', str(new_mass))
-            
-            inertia = inertial.find('inertia')
-            for i in inertia_fields:
-                noise =  abs(float(inertia.get(i))) * noise_inertia_percentage
-                new_inertia = float(inertia.get(i))+np.random.uniform(-noise, noise)
-                inertia.set(i,str(new_inertia))
-            
-            cm_pos = inertial.find('origin')
-            pos = list(map(float, cm_pos.get('xyz').split(' ')))
-            for e in pos:
-                noise = abs(e*noise_cm_position_percentage)
-                e += np.random.uniform(-noise, noise)
-            cm_pos.set('xyz', ' '.join(map(str, pos)))
+def randomize_model(urdf_file_path,noise_mass=None, noise_inertia=None, noise_cm_position=None):
+    if (noise_mass!= None and noise_inertia!=None and noise_cm_position != None):
+        inertia_fields = ['ixx','iyy','izz', 'ixy', 'iyz' , 'ixz']
+        # Load the URDF file
+        tree = ET.parse(urdf_file_path)
+        root = tree.getroot()
+        links = root.findall('link')
+        for link in links:
+            inertial = link.find('inertial')
+            if inertial is not None:
+                mass=inertial.find('mass')
+                noise = float(mass.get('value')) * noise_mass / 100
+                new_mass = float(mass.get('value')) + np.random.uniform(-noise, noise)
+                mass.set('value', str(new_mass))
 
-    # Write the modified URDF back to a file
-    tree.write(urdf_file_path[:-5] + '_randomized.urdf', encoding='utf-8', xml_declaration=True)
+                #print(f'new_mass: {new_mass}')
+                
+                inertia = inertial.find('inertia')
+                for i in inertia_fields:
+                    noise =  abs(float(inertia.get(i))) * noise_inertia / 100
+                    new_inertia = float(inertia.get(i))+np.random.uniform(-noise, noise)
+                    inertia.set(i,str(new_inertia))
+
+                #print(f'new_inertia: {new_inertia}')
+
+                
+                cm_pos = inertial.find('origin')
+                pos = list(map(float, cm_pos.get('xyz').split(' ')))
+                for e in pos:
+                    noise = abs(e*noise_cm_position / 100)
+                    # e += np.random.uniform(-noise, noise)
+                cm_pos.set('xyz', ' '.join(map(str, pos)))
+
+        # Write the modified URDF back to a file
+        tree.write(urdf_file_path[:-5] + '_randomized.urdf', encoding='utf-8', xml_declaration=True)
 
 def casadi_if_else(logic_var,expression,bounds):
         return(cs.if_else(logic_var > 0, 

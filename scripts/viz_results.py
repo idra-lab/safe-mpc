@@ -13,8 +13,9 @@ RENDER_CAPS = True
 params = Parameters('z1', True)
 params.build = False
 model = AdamModel(params)
-#cost = TrackingMovingCircleNLS(model,params.Q_weight,params.R_weight)
+# cost = TrackingMovingCircleNLS(model,params.Q_weight,params.R_weight)
 cost = ReachTargetNLS(model,params.Q_weight,params.R_weight)
+# cost = Tracking8NLS(model, params.Q_weight, params.R_weight)
 robot = NaiveController(model)
 robot.track_traj = False
 rviz = RobotVisualizer(params, 4)
@@ -24,15 +25,11 @@ if not(robot.track_traj):
 if robot.model.params.obstacles != None:
     rviz.addObstacles(robot.model.params.obstacles)
 
-data = pickle.load(open(f'{params.DATA_DIR}z1_parallel2_use_netTrue_15hor_10sm_mpc.pkl', 'rb'))
-
-#data = pickle.load(open(f'{params.DATA_DIR}x_traj_opt.pkl','rb'))
-#x=data
-
+data = pickle.load(open(f'{params.DATA_DIR}z1_naive_use_netNone_45hor_10sm_mpc.pkl', 'rb'))
 x = data['x']
 
 time.sleep(1)
-for j in range(0,params.test_num if not(robot.track_traj) else 1):
+for j in range(0,params.test_num):
     print(f"Trajectory {j + 1}")
     rviz.display(x[j][0, :model.nq])
     time.sleep(1)

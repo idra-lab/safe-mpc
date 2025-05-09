@@ -5,7 +5,7 @@ from tqdm import tqdm
 from scipy.stats import qmc
 from safe_mpc.parser import Parameters, parse_args
 from safe_mpc.env_model import AdamModel
-from safe_mpc.utils import  get_controller , get_ocp_acados
+from safe_mpc.utils import  get_controller , get_ocp_acados, randomize_model
 from safe_mpc.robot_visualizer import RobotVisualizer
 from safe_mpc.ocp import InverseKinematicsOCP
 import copy
@@ -19,10 +19,15 @@ params.solver_type = 'SQP'
 params.act = args['activation']
 params.alpha = args['alpha']
 params.N=args['horizon']
+
+params.noise_mass = args['noise']
+params.noise_inertia = args['noise']
+params.noise_cm = args['noise']
+
 model = AdamModel(params)
 
-# cost = TrackingMovingCircleNLS(model,params.Q_weight,params.R_weight)
-cost = ReachTargetEXT(model,params.Q_weight,params.R_weight)
+cost = TrackingMovingCircleEXT(model,params.Q_weight,params.R_weight)
+#cost = ReachTargetEXT(model,params.Q_weight,params.R_weight)
 ocp_name = args['controller']
 params.cont_name = args['controller']
 
@@ -136,48 +141,60 @@ else:
     #rviz.addTraj(ocp_with_net.cost.traj)
     #rviz.vizTraj(ocp_with_net.cost.traj)
     
-    InvKynSolver = InverseKinematicsOCP(model,ocp_with_net.cost.traj[:,0])
-    solver_inv = InvKynSolver.instantiateProblem()
-    sol = solver_inv.solve()
-    x0 = sol.value(InvKynSolver.X[0])
-    #rviz.displayWithEESphere(x0[:ocp_with_net.model.nq],params.robot_capsules+params.obst_capsules,params.spheres_robot)
-    
-    u0_g = np.array([np.zeros((model.nu,))]*args['horizon']) 
-    x0_g = np.array([x0]*(args['horizon']+1))
+    count=0
+    while succ < num_ics:
+        randomize_model(params.robot_urdf, noise_mass = params.noise_mass, noise_inertia = params.noise_inertia, noise_cm_position = params.noise_cm)
+        ocp_with_net.model.update_randomized_dynamics()
+        ocp_naive.model.update_randomized_dynamics()
+        ocp_zerovel.model.update_randomized_dynamics()
 
-    ocp_with_net.resetHorizon(args['horizon'])
 
-    ocp_with_net.setGuess(x0_g,u0_g)
-
-    status = ocp_with_net.solve(x0)
-    if (status == 0 or status==2) and ocp_with_net.checkGuess():
-        print(f'Solver trajectory tracking initialization status {status}, x0 {x0}')
-        xg_net = copy.copy(ocp_with_net.x_temp)
-        ug_net = copy.copy(ocp_with_net.u_temp)
-        x_guess_net.append(xg_net), u_guess_net.append(ug_net)
-        succ += 1
-        print('SUCCESS')
+        InvKynSolver = InverseKinematicsOCP(model,ocp_with_net.cost.traj[:,0])
+        solver_inv = InvKynSolver.instantiateProblem()
+        sol = solver_inv.solve()
+        x0 = sol.value(InvKynSolver.X[0])
+        #rviz.displayWithEESphere(x0[:ocp_with_net.model.nq],params.robot_capsules+params.obst_capsules,params.spheres_robot)
         
-        ocp_naive.setGuess(x0_g,u0_g)
-    
-        ocp_zerovel.setGuess(x0_g,u0_g)
-        status_naive = ocp_naive.solve(x0)
-        if ((status_naive ==0 or status_naive == 2 ) and ocp_naive.checkGuess()):
-            x_guess_naive.append(copy.copy(ocp_naive.x_temp))
-            u_guess_naive.append(copy.copy(ocp_naive.u_temp))
-        else: 
-            x_guess_naive.append(copy.copy(ocp_with_net.x_temp))
-            u_guess_naive.append(copy.copy(ocp_with_net.u_temp))
+        u0_g = np.array([np.zeros((model.nu,))]*args['horizon']) 
+        x0_g = np.array([x0]*(args['horizon']+1))
 
-        status_zero_vel = ocp_zerovel.solve(x0)
-        if ((status_zero_vel==0 or status_zero_vel==2) and ocp_zerovel.checkGuess()):
-            x_guess_zerovel.append(copy.copy(ocp_zerovel.x_temp))
-            u_guess_zerovel.append(copy.copy(ocp_zerovel.u_temp))
-        else: 
-            x_guess_zerovel.append(copy.copy(ocp_with_net.x_temp))
-            u_guess_zerovel.append(copy.copy(ocp_with_net.u_temp))
-    else:
-        print('FAILED')
+        ocp_with_net.resetHorizon(args['horizon'])
+        ocp_with_net.setGuess(x0_g,u0_g)
+
+        count += 1
+        print(f'Configuration {count}/{num_ics}')
+        status = ocp_with_net.solve(x0)
+        print(f'status : {status}')
+        if (status == 0 or status==2) and ocp_with_net.checkGuess():
+            print(f'Solver trajectory tracking initialization status {status}, x0 {x0}')
+            xg_net = copy.copy(ocp_with_net.x_temp)
+            ug_net = copy.copy(ocp_with_net.u_temp)
+            x_guess_net.append(xg_net), u_guess_net.append(ug_net)
+            succ += 1
+            print('SUCCESS')
+            
+            ocp_naive.resetHorizon(args['horizon'])
+            ocp_naive.setGuess(x0_g,u0_g)
+
+            ocp_zerovel.resetHorizon(args['horizon'])
+            ocp_zerovel.setGuess(x0_g,u0_g)
+            status_naive = ocp_naive.solve(x0)
+            if ((status_naive ==0 or status_naive == 2 ) and ocp_naive.checkGuess()):
+                x_guess_naive.append(copy.copy(ocp_naive.x_temp))
+                u_guess_naive.append(copy.copy(ocp_naive.u_temp))
+            else: 
+                x_guess_naive.append(copy.copy(ocp_with_net.x_temp))
+                u_guess_naive.append(copy.copy(ocp_with_net.u_temp))
+
+            status_zero_vel = ocp_zerovel.solve(x0)
+            if ((status_zero_vel==0 or status_zero_vel==2) and ocp_zerovel.checkGuess()):
+                x_guess_zerovel.append(copy.copy(ocp_zerovel.x_temp))
+                u_guess_zerovel.append(copy.copy(ocp_zerovel.u_temp))
+            else: 
+                x_guess_zerovel.append(copy.copy(ocp_with_net.x_temp))
+                u_guess_zerovel.append(copy.copy(ocp_with_net.u_temp))
+        else:
+            print('FAILED')
 
 progress_bar.close()
 

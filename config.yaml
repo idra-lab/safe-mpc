@@ -1,4 +1,4 @@
-test_num: 400            # number of tests
+test_num: 50             # number of tests
 n_steps: 800              # number of time steps in each test
 cpu_num: 24
 
@@ -127,32 +127,32 @@ obstacles:
   #   bounds: [0,1e6] 
 
 robot_capsules:
-  # - name: 'arm'
-  #   link_name: 'link02'
-  #   link_axis: 0
-  #   radius: 0.05
-  #   length: 0.35
-  #   spatial_offset: [0,0,0]
-  #   rotation_offset: [0,0,0]
-  #   color: [1,0,0,0.3]
+#   - name: 'arm'
+#     link_name: 'link02'
+#     link_axis: 0
+#     radius: 0.05
+#     length: 0.35
+#     spatial_offset: [0,0,0]
+#     rotation_offset: [0,0,0]
+#     color: [1,0,0,0.3]
   
-  # - name: 'ee'
-  #   link_name: 'link05'
-  #   link_axis: 0
-  #   radius: 0.055
-  #   length: 0.22
-  #   spatial_offset: [0,0,0]
-  #   rotation_offset: [0,0,0]
-  #   color: [1,0,0,0.3]
+#   - name: 'ee'
+#     link_name: 'link05'
+#     link_axis: 0
+#     radius: 0.055
+#     length: 0.22
+#     spatial_offset: [0,0,0]
+#     rotation_offset: [0,0,0]
+#     color: [1,0,0,0.3]
 
-  # - name: 'forearm'
-  #   link_name: 'link03'
-  #   link_axis: 0
-  #   radius: 0.05
-  #   length: 0.16
-  #   spatial_offset: [0.06,0,0.05]
-  #   rotation_offset: [0,-0.06283,0]
-  #   color: [0,0,1,0.3]
+#   - name: 'forearm'
+#     link_name: 'link03'
+#     link_axis: 0
+#     radius: 0.05
+#     length: 0.16
+#     spatial_offset: [0.06,0,0.05]
+#     rotation_offset: [0,-0.06283,0]
+#     color: [0,0,1,0.3]
 
 obstacles_capsules:
   # - name: 'fixed1'
@@ -200,10 +200,10 @@ collision_pairs:
   # - ['forearm','ball3']
 
 
-track_traj: false
+track_traj: true
 dim_shape_8: 0.3
-offset_traj: [0.37, 0.,0.1]
-theta_rot_traj: [0,0,1.570]
+offset_traj: [0.6, 0.,0.3]
+theta_rot_traj: [0,1.570,1.570]
 vel_max_traj: 0.65
 vel_const: true
 
@@ -213,7 +213,7 @@ acc_time: 0.01    # percentage of time used to reach the maximum velocity tracki
 circle_rad: 0.13
 circle_traj_vel: 0.0
 circle_center_vel: 0.5
-circle_offset_traj: [0.78,0.4,0.06]      # [0.77,0.4,0.09] 
+circle_offset_traj: [0.7,0.4,0.14]      # [0.77,0.4,0.09] 
 noise_mass: 0.
 noise_inertia: 0.
 noise_cm: 0.

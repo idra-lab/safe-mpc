@@ -3,7 +3,7 @@ import numpy as np
 from functools import reduce
 from safe_mpc.parser import Parameters, parse_args
 from safe_mpc.env_model import AdamModel
-from safe_mpc.utils import get_controller
+from safe_mpc.utils import get_controller, randomize_model
 from safe_mpc.controller import SafeBackupController
 from safe_mpc.cost_definition import *
 
@@ -23,12 +23,16 @@ model = AdamModel(params)
 model.ee_ref = params.ee_ref
 nq = model.nq
 
+params.noise_mass = args['noise']
+params.noise_inertia = args['noise']
+params.noise_cm = args['noise']
+
 build_controllers=args['build']
 
 cont_name = args['controller']
 controller = get_controller(cont_name, model)
-# cost_controller = TrackingMovingCircleNLS(model,params.Q_weight,params.R_weight)
-cost_controller = ReachTargetEXT(model,params.Q_weight,params.R_weight)
+cost_controller = TrackingMovingCircleEXT(model,params.Q_weight,params.R_weight)
+#cost_controller = ReachTargetEXT(model,params.Q_weight,params.R_weight)
 cost_controller.set_solver_cost(controller)
 controller.build_controller(build_controllers)
 
@@ -68,6 +72,12 @@ tau_viol = []
 kp, kd = 0.1, 1e2
 print(x_init.shape[0])
 for i in range(0,x_init.shape[0]):
+    if controller.model.params.track_traj:
+        print('HEREEEE')
+        randomize_model(params.robot_urdf, noise_mass = params.noise_mass, noise_inertia = params.noise_inertia, noise_cm_position = params.noise_cm)
+        controller.model.update_randomized_dynamics()
+        safe_ocp.model.update_randomized_dynamics()
+    
     traj_costs[i] = 0
     print(f'Simulation {i + 1}/{params.test_num}')
     x0 = x_init[i]
@@ -224,10 +234,6 @@ for field, t in zip(controller.time_fields, np.quantile(times, 0.99, axis=0)):
     print(f"{field:<20} -> {t}")
     
 # Save simulation data
-
-if cont_name == 'st':
-    cont_name = 'st_hard'
-    print(cont_name)
  
 with open(f'{params.DATA_DIR}{model_name}_{cont_name}_use_net{controller.model.params.use_net}_{horizon}hor_{int(params.alpha)}sm_{traj__track}mpc.pkl', 'wb') as f:
     pickle.dump({'x': np.asarray(x_sim_list),

@@ -153,12 +153,18 @@ class Tracking8NLS(ReachTargetNLS, AbstractTracking8):
         super().__init__(model,Q,R)
         AbstractTracking8.__init__(self,model)
         self.cost_type = 'NONLINEAR_LS'
+    
+    def update_trajectory(self):
+        self.traj = generate_8shape_trajectory(self.model.params)
 
 class Tracking8EXT(ReachTargetEXT):
     def __init__(self,model,Q,R):
         super().__init__(model,Q,R)
         AbstractTracking8.__init__(self,model)
         self.cost_type = 'EXTERNAL'
+
+    def update_trajectory(self):
+        self.traj = generate_8shape_trajectory(self.model.params)
 
 def generate_8shape_trajectory(params):
     from .utils import rot_mat_x,rot_mat_y,rot_mat_z
@@ -182,11 +188,11 @@ def generate_8shape_trajectory(params):
     theta = 0
     for i in range(traj.shape[1]):
         traj[:,i] = np.array([(params.dim_shape_8*np.cos(theta))/(1+np.sin(theta)**2),
-                                (params.dim_shape_8*np.cos(theta)*np.sin(theta))/(1+np.sin(theta)**2)
+                              (params.dim_shape_8*np.cos(theta)*np.sin(theta))/(1+np.sin(theta)**2)
                                 ,0] )
         theta = theta+(velocity/(np.sqrt(dx_fun(theta)**2+dy_fun(theta)**2)))*params.dt
         if not(params.vel_const) and velocity <= params.vel_max_traj:
-            velocity += acc 
+            velocity += acc        
     rot_mat__traj = rot_mat_x(params.theta_rot_traj[0])@rot_mat_y(params.theta_rot_traj[1])@rot_mat_z(params.theta_rot_traj[2])
     traj = (rot_mat__traj[:3,:3] @ traj) + params.offset_traj.reshape(3,1)
     return traj
@@ -241,6 +247,15 @@ class TrackingMovingCircleNLS(ReachTargetNLS,AbstractTrackingMovingCircle):
         super().__init__(model,Q,R)
         AbstractTrackingMovingCircle.__init__(self,model)
         self.cost_type = 'NONLINEAR_LS'
+
+    def update_trajectory(self):
+        self.traj = generate_moving_circle_trajectory(self.model.params)
+
+class TrackingMovingCircleEXT(ReachTargetEXT,AbstractTrackingMovingCircle):
+    def __init__(self,model,Q,R):
+        super().__init__(model,Q,R)
+        AbstractTrackingMovingCircle.__init__(self,model)
+        self.cost_type = 'EXTERNAL'
 
     def update_trajectory(self):
         self.traj = generate_moving_circle_trajectory(self.model.params)
