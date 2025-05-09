@@ -144,7 +144,7 @@ def randomize_model(urdf_file_path,noise_mass=None, noise_inertia=None, noise_cm
                 pos = list(map(float, cm_pos.get('xyz').split(' ')))
                 for e in pos:
                     noise = abs(e*noise_cm_position / 100)
-                    e += np.random.uniform(-noise, noise)
+                    # e += np.random.uniform(-noise, noise)
                 cm_pos.set('xyz', ' '.join(map(str, pos)))
 
         # Write the modified URDF back to a file
