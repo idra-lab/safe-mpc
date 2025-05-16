@@ -133,7 +133,6 @@ class AbstractController:
             self.ocp_solver.set(i, 'x', self.x_guess[i])
             self.ocp_solver.set(i, 'u', self.u_guess[i])
             
-        self.ocp_solver.set(0, 'x', x0)
         self.ocp_solver.set(self.N, 'x', self.x_guess[-1])
 
         for i in range(self.N+1):
@@ -238,6 +237,7 @@ class AbstractController:
         self.ocp.code_export_directory = gen_name
         self.ocp_solver = AcadosOcpSolver(self.ocp, json_file=gen_name + '.json', generate=build, build=build)
         self.build_flag = True
+
 
 class NaiveController(AbstractController):
     def __init__(self, model):
@@ -476,7 +476,7 @@ class RealReceding(STWAController):
 
     def additionalSetting(self):
         self.terminalSetConstraint(soft=False)
-        self.runningRealRecConstraint()
+        # self.runningRealRecConstraint()
 
     def runningRealRecConstraint(self):
         self.ocp.constraints.C = np.eye(self.model.nx)
@@ -490,37 +490,43 @@ class RealReceding(STWAController):
         self.ocp_solver.cost_set(self.N, "zu", self.model.params.ws_t * np.ones((self.zl_e.size,)))
 
         # Linear constraint
-        lg, ug = np.copy(self.ocp.constraints.lg), np.copy(self.ocp.constraints.ug)
         if self.r < self.N:
-            self.ocp_solver.constraints_set(self.r, "lg", self.x_viable - np.ones(self.model.nx) * 1e-2)
-            self.ocp_solver.constraints_set(self.r, "ug", self.x_viable + np.ones(self.model.nx) * 1e-2)
+            self.ocp_solver.constraints_set(self.r, "lbx", self.x_guess[self.r + 1] - 1e-3)
+            self.ocp_solver.constraints_set(self.r, "ubx", self.x_guess[self.r + 1] + 1e-3)
         for i in range(self.N):
             if i != self.r:
-                self.ocp_solver.constraints_set(i, "lg", lg)
-                self.ocp_solver.constraints_set(i, "ug", ug)
+                self.ocp_solver.constraints_set(i, "lbx", self.model.x_min)
+                self.ocp_solver.constraints_set(i, "ubx", self.model.x_max)
         # Solve the OCP
         status = self.solve(x)
-        # Save the current receding state as viable
-        self.x_viable = np.copy(self.x_temp[self.r])
+
+        # # Save the current receding state as viable
+        # self.x_viable = np.copy(self.x_temp[self.r])
+
         if self.abort_flag:
             self.r -= 1
         else:
             if self.r > 0:
                 self.r -= 1
+
         if self.r == 0 and self.abort_flag:
             self.x_viable = np.copy(self.x_guess[1])
             # Put back the receding constraint on last state for next iteration after abort
             self.r = self.N
             return self.u_guess[0], True
+        
         if status == 0 and self.model.checkStateConstraints(self.x_temp):
             self.fails = 0
             for i in range(self.r + 2, self.N + 1):
                 if self.checkSafeConstraints(self.x_temp[i]):
                     self.r = i - 1
-                    self.x_viable = np.copy(self.x_temp[i])
+                    # self.x_viable = np.copy(self.x_temp[i])
         else:
             self.fails += 1
+
+        self.current_step += 1
         return self.provideControl()
+    
     
 class ParallelController(RecedingController):
     def __init__(self, model):
