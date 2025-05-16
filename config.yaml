@@ -1,3 +1,5 @@
+system: 'z1'
+
 test_num: 50             # number of tests
 n_steps: 800              # number of time steps in each test
 cpu_num: 24
@@ -10,15 +12,13 @@ alpha: 10.                # safety margin
 n_dofs: 4                 # number of controlled joints 
 n_dof_safe_set: 4
 
-cost_type: 'NLS'          # NLS (non-linear least squares) or EXT (external)
-
 solver_mode: 'BALANCE'    # HPIPM mode, can be --> 'BALANCE', 'ROBUST', 'SPEED', 'SPEED_ABS'
-nlp_max_iter: 400
+nlp_max_iter: 500
 rti_iter: 1
 qp_max_iter: 200
 alpha_reduction: 0.3
 alpha_min: 1e-2
-levenberg_marquardt: 1e0  # 1e-3 in general, 1e-1 for z1 guess, 1e0 for z1 mpc
+levenberg_marquardt: 0  # 1e-3 in general, 1e-1 for z1 guess, 1e0 for z1 mpc
 ext_flag: '-O2'
 
 ipopt_opts:
@@ -202,9 +202,9 @@ collision_pairs:
 
 track_traj: true
 dim_shape_8: 0.3
-offset_traj: [0.6, 0.,0.3]
+offset_traj: [0.6, 0.,0.26]
 theta_rot_traj: [0,1.570,1.570]
-vel_max_traj: 0.65
+vel_max_traj: 0.4
 vel_const: true
 
 n_steps_tracking: 1000

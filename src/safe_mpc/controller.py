@@ -91,7 +91,7 @@ class AbstractController:
         self.ocp.solver_options.nlp_solver_max_iter = self.model.params.nlp_max_iter
         self.ocp.solver_options.qp_solver_iter_max = self.model.params.qp_max_iter
         self.ocp.solver_options.globalization = self.model.params.globalization
-        self.ocp.solver_options.levenberg_marquardt = self.model.params.levenberg_marquardt
+        self.ocp.solver_options.levenberg_marquardt = self.model.params.levenberg_marquardt if self.model.params.solver_type == 'SQP_RTI' else 0.
         #self.ocp.solver_options.ext_fun_compile_flags = self.model.params.ext_flag
 
         self.reset_controller()        
@@ -527,108 +527,107 @@ class RealReceding(STWAController):
         self.current_step += 1
         return self.provideControl()
     
-    
-class ParallelController(RecedingController):
-    def __init__(self, model):
-        super().__init__(model)
-        self.r = self.N
-        self.constraints = np.linspace(1,self.N,self.N).round().astype(int).tolist()
+# class ParallelController(RecedingController):
+#     def __init__(self, model):
+#         super().__init__(model)
+#         self.r = self.N
+#         self.constraints = np.linspace(1,self.N,self.N).round().astype(int).tolist()
 
-    def terminalSetConstraint(self, soft=True):
-        from .utils import casadi_if_else
-        # Get the actual number of nl_constraints --> will be the index for the soft constraint
-        num_nl_e = np.sum([c[0].shape[0] for c in self.nl_con_e])
-        safe_set_constraints = self.safe_set.get_constraints()
-        bounds = self.safe_set.get_bounds()
-        constraint_num = 0
-        for i, constr in enumerate(safe_set_constraints):
-            self.nl_con_e.append([casadi_if_else(self.cs_if_else_param,constr,bounds[i]),bounds[i][0],bounds[i][1]])
-            constraint_num += constr.shape[0]
+#     def terminalSetConstraint(self, soft=True):
+#         from .utils import casadi_if_else
+#         # Get the actual number of nl_constraints --> will be the index for the soft constraint
+#         num_nl_e = np.sum([c[0].shape[0] for c in self.nl_con_e])
+#         safe_set_constraints = self.safe_set.get_constraints()
+#         bounds = self.safe_set.get_bounds()
+#         constraint_num = 0
+#         for i, constr in enumerate(safe_set_constraints):
+#             self.nl_con_e.append([casadi_if_else(self.cs_if_else_param,constr,bounds[i]),bounds[i][0],bounds[i][1]])
+#             constraint_num += constr.shape[0]
 
-        if self.model.params.use_net:
-            self.ocp.solver_options.model_external_shared_lib_dir = self.safe_set.l4c_model.shared_lib_dir
-            self.ocp.solver_options.model_external_shared_lib_name = self.safe_set.l4c_model.name
+#         if self.model.params.use_net:
+#             self.ocp.solver_options.model_external_shared_lib_dir = self.safe_set.l4c_model.shared_lib_dir
+#             self.ocp.solver_options.model_external_shared_lib_name = self.safe_set.l4c_model.name
 
-        if soft:
-            self.idxhs_e = np.hstack((self.idxhs_e,np.arange(num_nl_e, num_nl_e + constraint_num)))
+#         if soft:
+#             self.idxhs_e = np.hstack((self.idxhs_e,np.arange(num_nl_e, num_nl_e + constraint_num)))
 
-            self.zl_e = np.hstack((self.zl_e,self.model.params.ws_t*np.ones(self.idxhs_e.size)))
-            self.zu_e = np.hstack((self.zu_e,np.zeros(self.idxhs_e.size)))
-            self.Zl_e = np.hstack((self.Zl_e,np.zeros(self.idxhs_e.size)))
-            self.Zu_e = np.hstack((self.Zu_e,np.zeros(self.idxhs_e.size)))
+#             self.zl_e = np.hstack((self.zl_e,self.model.params.ws_t*np.ones(self.idxhs_e.size)))
+#             self.zu_e = np.hstack((self.zu_e,np.zeros(self.idxhs_e.size)))
+#             self.Zl_e = np.hstack((self.Zl_e,np.zeros(self.idxhs_e.size)))
+#             self.Zu_e = np.hstack((self.Zu_e,np.zeros(self.idxhs_e.size)))
 
-    def additionalSetting(self):
-        # Terminal constraint before, since it construct the nn model
-        self.terminalSetConstraint(soft=False)
-        self.runningSetConstraint(soft=False)
+#     def additionalSetting(self):
+#         # Terminal constraint before, since it construct the nn model
+#         self.terminalSetConstraint(soft=False)
+#         self.runningSetConstraint(soft=False)
 
-    def constrain_n(self,n_constr):
-        self.ocp_solver.cost_set(n_constr, 'zl' , self.model.params.ws_r * np.ones((self.zl.size,)))
-        self.ocp_solver.cost_set(n_constr, 'zu' , self.model.params.ws_r * np.ones((self.zl.size,)))
-        self.ocp_solver.set(n_constr, "p", np.hstack([self.model.ee_ref, [self.model.params.alpha, 1.]]))
-        for i in range(1,self.N+1):
-            if i != n_constr:
-                # No constraints on other running states
-                self.ocp_solver.cost_set(i, 'zl' , np.zeros((self.zl.size,)))
-                self.ocp_solver.cost_set(i, 'zu' , np.zeros((self.zl.size,)))
-                self.ocp_solver.set(i, "p", np.hstack([self.model.ee_ref, [self.model.params.alpha, -1.]]))
+#     def constrain_n(self,n_constr):
+#         self.ocp_solver.cost_set(n_constr, 'zl' , self.model.params.ws_r * np.ones((self.zl.size,)))
+#         self.ocp_solver.cost_set(n_constr, 'zu' , self.model.params.ws_r * np.ones((self.zl.size,)))
+#         self.ocp_solver.set(n_constr, "p", np.hstack([self.model.ee_ref, [self.model.params.alpha, 1.]]))
+#         for i in range(1,self.N+1):
+#             if i != n_constr:
+#                 # No constraints on other running states
+#                 self.ocp_solver.cost_set(i, 'zl' , np.zeros((self.zl.size,)))
+#                 self.ocp_solver.cost_set(i, 'zu' , np.zeros((self.zl.size,)))
+#                 self.ocp_solver.set(i, "p", np.hstack([self.model.ee_ref, [self.model.params.alpha, -1.]]))
 
-    def check_safe_n(self):
-        r=0
-        for i in range(self.r-1, self.N + 1):
-            if self.checkSafeConstraints(self.x_temp[i]):
-                r = i
-        return r
+#     def check_safe_n(self):
+#         r=0
+#         for i in range(self.r-1, self.N + 1):
+#             if self.checkSafeConstraints(self.x_temp[i]):
+#                 r = i
+#         return r
 
-    def sing_step(self, x, n_constr):
-        success=False
-        constr_ver = 0
-        self.constrain_n(n_constr)
-        # Solve the OCP
-        status = self.solve(x)
-        checked_r = self.check_safe_n()
-        if (status==0):
+#     def sing_step(self, x, n_constr):
+#         success=False
+#         constr_ver = 0
+#         self.constrain_n(n_constr)
+#         # Solve the OCP
+#         status = self.solve(x)
+#         checked_r = self.check_safe_n()
+#         if (status==0):
         
-            constr_ver =checked_r if checked_r >= self.r else min(n_constr,self.r)
+#             constr_ver =checked_r if checked_r >= self.r else min(n_constr,self.r)
             
-            if (constr_ver-self.r>0) and\
-                self.model.checkStateConstraints(self.x_temp):
-                success = True
+#             if (constr_ver-self.r>0) and\
+#                 self.model.checkStateConstraints(self.x_temp):
+#                 success = True
 
-        return constr_ver if success else 0
+#         return constr_ver if success else 0
 
-    def step(self,x):
-        node_success = 0
-        for i in reversed(self.constraints):
-            result = self.sing_step(x,i)
-            if result > node_success:
-                node_success = result
-                tmp_x = np.copy(self.x_temp)
-                tmp_u = np.copy(self.u_temp)
-                if result==self.N:
-                    break
-        if node_success > 1:
-            #print(f'Node success:{node_success}')
-            self.r = node_success
-            self.x_temp = tmp_x
-            self.u_temp = tmp_u
-            self.fails = 0
-        else:
-            self.fails += 1
-            if self.r ==1:
-                self.x_viable = np.copy(self.x_guess[1])
-                self.r = self.N
-                return self.u_guess[0], True
-        self.r -= 1
+#     def step(self,x):
+#         node_success = 0
+#         for i in reversed(self.constraints):
+#             result = self.sing_step(x,i)
+#             if result > node_success:
+#                 node_success = result
+#                 tmp_x = np.copy(self.x_temp)
+#                 tmp_u = np.copy(self.u_temp)
+#                 if result==self.N:
+#                     break
+#         if node_success > 1:
+#             #print(f'Node success:{node_success}')
+#             self.r = node_success
+#             self.x_temp = tmp_x
+#             self.u_temp = tmp_u
+#             self.fails = 0
+#         else:
+#             self.fails += 1
+#             if self.r ==1:
+#                 self.x_viable = np.copy(self.x_guess[1])
+#                 self.r = self.N
+#                 return self.u_guess[0], True
+#         self.r -= 1
 
-        self.current_step += 1
-        return self.provideControl()
+#         self.current_step += 1
+#         return self.provideControl()
     
-    def resetHorizon(self, N):
-        super().resetHorizon(N)
-        self.constraints = np.linspace(1,self.N,self.N).round().astype(int).tolist()
+#     def resetHorizon(self, N):
+#         super().resetHorizon(N)
+#         self.constraints = np.linspace(1,self.N,self.N).round().astype(int).tolist()
 
-class ParalleltwoController2(RecedingController):
+class ParallelController(RecedingController):
     def __init__(self, model):
         super().__init__(model)
         self.r = self.N
@@ -666,7 +665,7 @@ class ParalleltwoController2(RecedingController):
         checked_r = self.check_safe_n()
         if (status==0):
         
-            constr_ver =checked_r if checked_r >= self.r else min(n_constr,self.r)
+            constr_ver = checked_r if checked_r >= self.r else min(n_constr,self.r)
            
             if (constr_ver-self.r>=0) and\
                 self.model.checkStateConstraints(self.x_temp):

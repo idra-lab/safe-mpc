@@ -41,7 +41,6 @@ def get_ocp_acados(cont_name, model) -> AbstractController:
                     'receding': HTWAController,
                     'real_receding': HTWAController,
                     'parallel': HTWAController,
-                    'parallel2': HTWAController,
                     'st_analytic': HTWAController,
                     'htwa_analytic': HTWAController,
                     'receding_analytic': HTWAController,
@@ -58,7 +57,6 @@ def get_controller(cont_name, model) -> AbstractController:
                     'htwa': HTWAController,
                     'receding': RecedingController,
                     'parallel': ParallelController,
-                    'parallel2': ParalleltwoController2,
                     'real_receding': RealReceding }
     if cont_name in controllers:
         return controllers[cont_name](model)
@@ -144,7 +142,7 @@ def randomize_model(urdf_file_path,noise_mass=None, noise_inertia=None, noise_cm
                 pos = list(map(float, cm_pos.get('xyz').split(' ')))
                 for e in pos:
                     noise = abs(e*noise_cm_position / 100)
-                    # e += np.random.uniform(-noise, noise)
+                    #e += np.random.uniform(-noise, noise)
                 cm_pos.set('xyz', ' '.join(map(str, pos)))
 
         # Write the modified URDF back to a file

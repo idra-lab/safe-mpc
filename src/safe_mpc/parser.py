@@ -53,13 +53,19 @@ def align_vectors(a, b):
 
 class Parameters:
     def __init__(self, urdf_name, rti=True, filename=None):
-        self.urdf_name = urdf_name
         # Define all the useful paths
         self.PKG_DIR = os.path.dirname(os.path.abspath(__file__))
         self.ROOT_DIR = self.PKG_DIR.split('/src/safe_mpc')[0]
         self.CONF_DIR = os.path.join(self.ROOT_DIR, 'config/')
         self.DATA_DIR = os.path.join(self.ROOT_DIR, 'data/')
         self.GEN_DIR = os.path.join(self.ROOT_DIR, 'generated/')
+        if filename is None:
+            parameters = yaml.load(open(self.ROOT_DIR + '/config.yaml'), Loader=yaml.FullLoader)
+        else:
+            parameters = yaml.load(open(filename), Loader=yaml.FullLoader)
+
+        self.urdf_name = str(parameters['system'])
+        
         self.NN_DIR = os.path.join(self.ROOT_DIR, 'nn_models/' + urdf_name + '/')
         self.ROBOTS_DIR = os.path.join(self.ROOT_DIR, 'robots/')
 
@@ -68,12 +74,7 @@ class Parameters:
         self.robot_descr = URDF.from_xml_file(self.robot_urdf)
         self.links = [self.robot_descr.links[i].name for i in range(len(self.robot_descr.links))]
         self.joints = [self.robot_descr.joints[i] for i in range(len(self.robot_descr.joints))]
-
-        if filename is None:
-            parameters = yaml.load(open(self.ROOT_DIR + '/config.yaml'), Loader=yaml.FullLoader)
-        else:
-            parameters = yaml.load(open(filename), Loader=yaml.FullLoader)
-
+        
         self.test_num = int(parameters['test_num'])
         self.n_steps = int(parameters['n_steps'])
         self.cpu_num = int(parameters['cpu_num'])
@@ -123,7 +124,6 @@ class Parameters:
         self.tol_obs = float(parameters['tol_obs'])
         self.tol_safe_set = float(parameters['tol_safe_set'])
 
-        self.cost_type = parameters['cost_type']
         self.Q_weight = float(parameters['Q_weight'])
         self.R_weight = float(parameters['R_weight'])         # eye(nu) * R
         self.eps = float(parameters['eps'])
