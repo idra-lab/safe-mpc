@@ -210,7 +210,7 @@ with open(f'{params.DATA_DIR}{model_name}_zerovel_{args["horizon"]}hor_{int(para
 
 if (args['controller']!= 'naive' and args['controller']!= 'zerovel'): 
     for cont in controllers_list:
-        if cont in ['st','stwa','htwa','receding','real_receding','parallel','parallel2']:
+        if cont in ['st','stwa','htwa','receding','real_receding','parallel']:
             with open(f'{params.DATA_DIR}{model_name}_{cont}_{args["horizon"]}hor_{int(params.alpha)}sm_use_net{ocp_with_net.model.params.use_net}_{traj__track}_guess.pkl', 'wb') as f:
                 pickle.dump({'xg': np.asarray(x_guess_net), 'ug': np.asarray(u_guess_net)}, f)
 

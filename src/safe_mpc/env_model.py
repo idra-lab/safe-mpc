@@ -223,7 +223,7 @@ class AdamModel:
         for i in range(len(x_tmp)):
             for pair in self.collisions_constr_fun:
                 if not(pair[1]<=pair[0](x_tmp[i])<=pair[2]):
-                    print(f'collision: {pair[0].name()}')
+                    # print(f'collision: {pair[0].name()}')
                     return False
             return True
 

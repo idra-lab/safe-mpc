@@ -96,7 +96,7 @@ class HardTerminalOCP(NaiveOCP):
     def create_safe_set(self):
         # Analytic or network set
         if self.model.params.use_net == True:
-            self.safe_set = NetSafeSet(self.model,cs.MX.sym('p',5),3)
+            self.safe_set = NetSafeSet(self.model,cs.MX.sym('p',5))
             self.net_name = '_net'
         elif self.model.params.use_net == False: 
             self.safe_set = AnalyticSafeSet(self.model,cs.MX.sym('p',5))
