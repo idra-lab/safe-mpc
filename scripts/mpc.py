@@ -31,8 +31,8 @@ build_controllers=args['build']
 
 cont_name = args['controller']
 controller = get_controller(cont_name, model)
-cost_controller = TrackingMovingCircleEXT(model,params.Q_weight,params.R_weight)
-#cost_controller = ReachTargetEXT(model,params.Q_weight,params.R_weight)
+# cost_controller = TrackingMovingCircleEXT(model,params.Q_weight,params.R_weight)
+cost_controller = ReachTargetNLS(model,params.Q_weight,params.R_weight)
 cost_controller.set_solver_cost(controller)
 controller.build_controller(build_controllers)
 
@@ -61,7 +61,7 @@ x_init = x_guess[:,0,:]
 
 # MPC simulation 
 conv_idx, collisions_idx, viable_idx = [], [], []
-x_sim_list, u_list, x_viable = [], [], []
+x_sim_list, u_list, r_list, x_viable = [], [], [], []
 stats = []
 traj_costs = [[] for _ in range(x_init.shape[0])]
 EVAL = False
@@ -73,7 +73,6 @@ kp, kd = 0.1, 1e2
 print(x_init.shape[0])
 for i in range(0,x_init.shape[0]):
     if controller.model.params.track_traj:
-        print('HEREEEE')
         randomize_model(params.robot_urdf, noise_mass = params.noise_mass, noise_inertia = params.noise_inertia, noise_cm_position = params.noise_cm)
         controller.model.update_randomized_dynamics()
         safe_ocp.model.update_randomized_dynamics()
@@ -83,6 +82,7 @@ for i in range(0,x_init.shape[0]):
     x0 = x_init[i]
     x_sim = np.empty((params.n_steps + 1, model.nx)) * np.nan
     u = np.empty((params.n_steps, model.nu)) * np.nan
+    r_index = np.empty((params.n_steps, 1)) * np.nan 
     x_sim[0] = x0
 
     controller.setGuess(x_guess[i], u_guess[i])
@@ -101,6 +101,8 @@ for i in range(0,x_init.shape[0]):
             
         else:   
             u[j], sa_flag = controller.step(x_sim[j])
+            if cont_name in ['receding', 'parallel']:
+                r_index[j] = controller.r
     
             # Check Safe Abort
             if sa_flag:
@@ -209,7 +211,7 @@ for i in range(0,x_init.shape[0]):
             viable_idx.remove(i)
     print(f'initial state: {x_sim[0]}')
 
-    x_sim_list.append(x_sim), u_list.append(u)
+    x_sim_list.append(x_sim), u_list.append(u), r_list.append(r_index)
 
 viable_idx = [i for i in viable_idx if i not in collisions_idx]
 viable_idx = list(set(viable_idx))
@@ -238,6 +240,7 @@ for field, t in zip(controller.time_fields, np.quantile(times, 0.99, axis=0)):
 with open(f'{params.DATA_DIR}{model_name}_{cont_name}_use_net{controller.model.params.use_net}_{horizon}hor_{int(params.alpha)}sm_{traj__track}mpc.pkl', 'wb') as f:
     pickle.dump({'x': np.asarray(x_sim_list),
                  'u': np.asarray(u_list),
+                 'r': np.asarray(r_list),
                  'conv_idx' : conv_idx,
                  'collisions_idx' : collisions_idx,
                  'unconv_idx' : unconv_idx,
