@@ -26,8 +26,8 @@ params.noise_cm = args['noise']
 
 model = AdamModel(params)
 
-cost = TrackingMovingCircleEXT(model,params.Q_weight,params.R_weight)
-#cost = ReachTargetEXT(model,params.Q_weight,params.R_weight)
+#cost = TrackingMovingCircleEXT(model,params.Q_weight,params.R_weight)
+cost = ReachTargetNLS(model,params.Q_weight,params.R_weight)
 ocp_name = args['controller']
 params.cont_name = args['controller']
 

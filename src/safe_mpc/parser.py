@@ -53,6 +53,7 @@ def align_vectors(a, b):
 
 class Parameters:
     def __init__(self, urdf_name, rti=True, filename=None):
+        self.urdf_name = urdf_name
         # Define all the useful paths
         self.PKG_DIR = os.path.dirname(os.path.abspath(__file__))
         self.ROOT_DIR = self.PKG_DIR.split('/src/safe_mpc')[0]
@@ -64,7 +65,6 @@ class Parameters:
         else:
             parameters = yaml.load(open(filename), Loader=yaml.FullLoader)
 
-        self.urdf_name = str(parameters['system'])
         
         self.NN_DIR = os.path.join(self.ROOT_DIR, 'nn_models/' + urdf_name + '/')
         self.ROBOTS_DIR = os.path.join(self.ROOT_DIR, 'robots/')

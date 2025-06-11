@@ -91,7 +91,7 @@ class AbstractController:
         self.ocp.solver_options.nlp_solver_max_iter = self.model.params.nlp_max_iter
         self.ocp.solver_options.qp_solver_iter_max = self.model.params.qp_max_iter
         self.ocp.solver_options.globalization = self.model.params.globalization
-        self.ocp.solver_options.levenberg_marquardt = self.model.params.levenberg_marquardt if self.model.params.solver_type == 'SQP_RTI' else 0.
+        self.ocp.solver_options.levenberg_marquardt = self.model.params.levenberg_marquardt #if self.model.params.solver_type == 'SQP_RTI' else 0.
         #self.ocp.solver_options.ext_fun_compile_flags = self.model.params.ext_flag
 
         self.reset_controller()        
