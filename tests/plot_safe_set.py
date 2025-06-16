@@ -1,25 +1,31 @@
 import numpy as np
 import torch
 import torch.nn as nn
-from safe_mpc.parser import Parameters
+from safe_mpc.parser import Parameters, parse_args
 from safe_mpc.abstract import AdamModel, NeuralNetwork
 from safe_mpc.controller import NaiveController
-from safe_mpc.utils import obstacles
+from safe_mpc.utils import obstacles, capsules, capsule_pairs, ee_ref
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
 
+args = parse_args()
 params = Parameters('z1', rti=True)
-model = AdamModel(params, n_dofs=4)
-controller = NaiveController(model, obstacles)
+params.build = args['build']
+params.alpha = args['alpha']
+model = AdamModel(params, args['dofs'])
+model.ee_ref = ee_ref
+controller = NaiveController(model, obstacles, capsules, capsule_pairs)
 
-sm = 10
+sm = args['alpha']
 nq = model.nq
 grid = 1e-2
 
 ub = np.sqrt(nq) * max(model.x_max[nq:])
-nn_model = NeuralNetwork(model.nx, 256, 1, nn.GELU())
-nn_data = torch.load(f'{params.NN_DIR}{nq}dof_gelu{model.obs_string}.pt',
+nn_model = NeuralNetwork(model.nx, 128, 1, nn.GELU(approximate='tanh'))
+# nn_data = torch.load(f'{params.NN_DIR}{nq}dof_gelu{model.obs_string}.pt',
+#                      map_location=torch.device('cpu'))
+nn_data = torch.load(f'../nn_models/z1/5dof_gelu_dt10ms_ALPHA_10.pt',
                      map_location=torch.device('cpu'))
 nn_model.load_state_dict(nn_data['model'])
 mean = nn_data['mean']
@@ -56,14 +62,46 @@ for i in range(nq):
     plt.contourf(q, v, z, cmap='coolwarm', alpha=0.8)
 
     # Remove the joint positions s.t. robot collides with obstacles 
+    # if params.obs_flag:
+    #     pts = np.empty(0)
+    #     for j in range(len(x)):
+    #         if not controller.checkCollision(x[j]):
+    #             pts = np.append(pts, x[j, i])
+    #     if len(pts) > 0:
+    #         origin = (np.min(pts), model.x_min[i + nq])
+    #         width = np.max(pts) - np.min(pts)
+    #         height = model.x_max[i + nq] - model.x_min[i + nq]
+    #         rect = patches.Rectangle(origin, width, height, linewidth=1, edgecolor='black', facecolor='black')
+    #         plt.gca().add_patch(rect)
+
     if params.obs_flag:
-        pts = np.empty(0)
+        in_collision = []
         for j in range(len(x)):
-            if not controller.checkCollision(x[j]):
-                pts = np.append(pts, x[j, i])
-        if len(pts) > 0:
-            origin = (np.min(pts), model.x_min[i + nq])
-            width = np.max(pts) - np.min(pts)
+            collides = not(controller.checkCollision(x[j]))
+            in_collision.append(collides)
+
+        # Find contiguous segments of collisions
+        start = None
+        for j in range(len(x)):
+            if in_collision[j]:
+                if start is None:
+                    start = j
+            else:
+                if start is not None:
+                    # End of a collision segment
+                    pts_segment = x[start:j, i]
+                    origin = (np.min(pts_segment), model.x_min[i + nq])
+                    width = np.max(pts_segment) - np.min(pts_segment)
+                    height = model.x_max[i + nq] - model.x_min[i + nq]
+                    rect = patches.Rectangle(origin, width, height, linewidth=1, edgecolor='black', facecolor='black')
+                    plt.gca().add_patch(rect)
+                    start = None
+
+        # Handle the case where the last points are in collision
+        if start is not None:
+            pts_segment = x[start:, i]
+            origin = (np.min(pts_segment), model.x_min[i + nq])
+            width = np.max(pts_segment) - np.min(pts_segment)
             height = model.x_max[i + nq] - model.x_min[i + nq]
             rect = patches.Rectangle(origin, width, height, linewidth=1, edgecolor='black', facecolor='black')
             plt.gca().add_patch(rect)
@@ -73,7 +111,7 @@ for i in range(nq):
     plt.xlabel('q_' + str(i + 1))
     plt.ylabel('dq_' + str(i + 1))
     plt.grid()
-    plt.title(f"Classifier section joint {i + 1}, horizon {controller.N}")
+    plt.title(f"Joint {i + 1}, Horizon {controller.N}, Safety margin {sm}")
     plt.savefig(f'data/{i + 1}dof_{controller.N}_BRS.png')
 
 plt.show()
