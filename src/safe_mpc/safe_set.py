@@ -33,6 +33,8 @@ class NeuralNetwork(nn.Module):
             activation,
             nn.Linear(hidden_size, hidden_size),
             activation,
+            # nn.Linear(hidden_size, hidden_size),
+            # activation,
             nn.Linear(hidden_size, output_size)
         )
     

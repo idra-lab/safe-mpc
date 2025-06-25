@@ -24,7 +24,13 @@ def parse_args():
                         help='Activation function for the neural network')
     parser.add_argument('--back_hor',type=int,default=45,help='Horizon of the backup controller')
     parser.add_argument('--noise', type=float, default=0.,
-                        help='Noise in the model dynaimcs')
+                        help='Noise in the model dynamics')
+    parser.add_argument('--control_noise', type=float, default=0.,
+                        help='Additive noise to the control')
+    parser.add_argument('--joint_bounds_margin', type=float, default=0.,
+                        help='Joint bounds margin, in percentage - used in case of noise')
+    parser.add_argument('--collision_margin', type=float, default=0.,
+                        help='Collision margin in the constraints [m] - used in case of noise')
     return vars(parser.parse_args())
 
 def align_vectors(a, b):
@@ -52,13 +58,13 @@ def align_vectors(a, b):
     return R
 
 class Parameters:
-    def __init__(self, urdf_name, rti=True, filename=None):
+    def __init__(self, args, urdf_name, rti=True, filename=None):
         self.urdf_name = urdf_name
         # Define all the useful paths
         self.PKG_DIR = os.path.dirname(os.path.abspath(__file__))
         self.ROOT_DIR = self.PKG_DIR.split('/src/safe_mpc')[0]
         self.CONF_DIR = os.path.join(self.ROOT_DIR, 'config/')
-        self.DATA_DIR = os.path.join(self.ROOT_DIR, 'data/')
+        self.DATA_DIR = os.path.join(self.ROOT_DIR, 'data_noise/')
         self.GEN_DIR = os.path.join(self.ROOT_DIR, 'generated/')
         self.NN_DIR = os.path.join(self.ROOT_DIR, 'nn_models/' + urdf_name + '/')
         self.ROBOTS_DIR = os.path.join(self.ROOT_DIR, 'robots/')
@@ -101,6 +107,7 @@ class Parameters:
         self.reg_term_analytic_constr = float(parameters['reg_term'])
 
         self.nq = int(parameters['n_dofs'])
+        self.net_size[0] = self.nq*2
         self.ee_ref = np.array(parameters['ee_ref'])
         self.ee_pos = np.array(parameters['ee_position'])
 
@@ -135,6 +142,9 @@ class Parameters:
         self.ws_t = float(parameters['ws_t'])
         self.ws_r = float(parameters['ws_r'])
 
+        self.q_margin = float(parameters['joint_bounds_margin'])
+        self.q_margin = args['joint_bounds_margin']
+
         # For cartesian constraint
         self.obs_flag = bool(parameters['obs_flag'])
         self.abort_flag = bool(parameters['abort_flag'])
@@ -147,6 +157,11 @@ class Parameters:
         self.ddq_max = np.array(parameters['ddq_max'])
         self.ddx_max = np.array(parameters['ddx_max'])
 
+        self.collision_margin = float(parameters['collision_margin'])
+        self.collision_margin = args['collision_margin']
+
+        self.control_noise = args["control_noise"]
+
         # collision pairs
 
         # obstacles
@@ -156,6 +171,11 @@ class Parameters:
             for entry in obstacle:
                 if type(obstacle[entry]) == list: obs[entry] = np.array(obstacle[entry]).astype(float)
                 else: obs[entry] = obstacle[entry]
+            if obs['type'] == 'plane':
+                obs['bounds'][0] -= self.collision_margin
+                obs['bounds'][1] += self.collision_margin
+            elif obs['type'] == 'sphere-obs':
+                obs['radius'] -= self.collision_margin
             self.obstacles.append(obs)
 
         # capsules
@@ -164,11 +184,13 @@ class Parameters:
         if parameters['robot_capsules'] != None:
             for capsule in parameters['robot_capsules']:
                 self.robot_capsules.append(self.create_moving_capsule(capsule))
+                self.robot_capsules[-1]['radius'] -= self.collision_margin
         # fixed capsule
         self.obst_capsules = []
         if parameters['obstacles_capsules'] != None:
             for capsule in parameters['obstacles_capsules']:
                 self.obst_capsules.append(self.create_fixed_capsule(capsule))
+                self.obst_capsules[-1]['radius'] -= self.collision_margin
 
         # self.spheres on robot
         self.spheres_robot = []
@@ -178,6 +200,7 @@ class Parameters:
                 for entry in sphere_robot:
                     sphere[entry] = sphere_robot[entry]
                 self.spheres_robot.append(sphere)
+                self.sphere[-1]['radius'] -= self.collision_margin
 
         self.collisions_pairs = []
         # assign pairs
@@ -195,10 +218,6 @@ class Parameters:
                 self.collisions_pairs.append(self.assign_pairs(pair[0],pair[1],self.obstacles,self.robot_capsules+self.obst_capsules,self.spheres_robot))
 
         self.track_traj = bool(parameters['track_traj'])
-
-        self.noise_mass = float(parameters['noise_mass'])
-        self.noise_inertia = float(parameters['noise_inertia'])
-        self.noise_cm = float(parameters['noise_cm'])
 
 
     def create_moving_capsule(self,capsule):

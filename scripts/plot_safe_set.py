@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from safe_mpc.cost_definition import *
 
+
 args = parse_args()
 model_name = args['system']
 params = Parameters(model_name, rti=True)
@@ -18,12 +19,14 @@ cost = ReachTargetEXT(model,params.Q_weight,params.R_weight)
 controller, _ =  get_ocp_acados('naive', model)
 controller.build_controller(build=True)
 
-sm = 10
+sm = args['alpha']
 nq = model.nq
 grid = 1e-2
 
 ub = np.sqrt(nq) * max(model.x_max[nq:])
-nn_model = NeuralNetwork(model.nx, 128, 1, torch.nn.GELU(approximate='tanh'))
+nn_model = NeuralNetwork(model.nx, 256, 1, nn.GELU(approximate='tanh'))
+# nn_data = torch.load(f'{params.NN_DIR}{nq}dof_gelu{model.obs_string}.pt',
+#                      map_location=torch.device('cpu'))
 nn_data = torch.load(controller.model.params.net_path,
                              map_location=torch.device('cpu'))
 nn_model.load_state_dict(nn_data['model'])
@@ -60,11 +63,11 @@ for i in range(nq):
     z = out.reshape(q.shape)
     plt.contourf(q, v, z, cmap='coolwarm', alpha=0.8)
 
-    # # Remove the joint positions s.t. robot collides with obstacles 
+    # Remove the joint positions s.t. robot collides with obstacles 
     # if params.obs_flag:
     #     pts = np.empty(0)
     #     for j in range(len(x)):
-    #         if not controller.model.checkCollision(x[j]):
+    #         if not controller.checkCollision(x[j]):
     #             pts = np.append(pts, x[j, i])
     #     if len(pts) > 0:
     #         origin = (np.min(pts), model.x_min[i + nq])
@@ -73,12 +76,44 @@ for i in range(nq):
     #         rect = patches.Rectangle(origin, width, height, linewidth=1, edgecolor='black', facecolor='black')
     #         plt.gca().add_patch(rect)
 
+    if params.obs_flag:
+        in_collision = []
+        for j in range(len(x)):
+            collides = not(controller.model.checkCollision(x[j]))
+            in_collision.append(collides)
+
+        # Find contiguous segments of collisions
+        start = None
+        for j in range(len(x)):
+            if in_collision[j]:
+                if start is None:
+                    start = j
+            else:
+                if start is not None:
+                    # End of a collision segment
+                    pts_segment = x[start:j, i]
+                    origin = (np.min(pts_segment), model.x_min[i + nq])
+                    width = np.max(pts_segment) - np.min(pts_segment)
+                    height = model.x_max[i + nq] - model.x_min[i + nq]
+                    rect = patches.Rectangle(origin, width, height, linewidth=1, edgecolor='black', facecolor='black')
+                    plt.gca().add_patch(rect)
+                    start = None
+
+        # Handle the case where the last points are in collision
+        if start is not None:
+            pts_segment = x[start:, i]
+            origin = (np.min(pts_segment), model.x_min[i + nq])
+            width = np.max(pts_segment) - np.min(pts_segment)
+            height = model.x_max[i + nq] - model.x_min[i + nq]
+            rect = patches.Rectangle(origin, width, height, linewidth=1, edgecolor='black', facecolor='black')
+            plt.gca().add_patch(rect)
+
     plt.xlim([model.x_min[i], model.x_max[i]])
     plt.ylim([model.x_min[i + nq], model.x_max[i + nq]])
     plt.xlabel('q_' + str(i + 1))
     plt.ylabel('dq_' + str(i + 1))
     plt.grid()
-    plt.title(f"Classifier section joint {i + 1}, horizon {controller.N}")
-    plt.savefig(f'../data/{i + 1}dof_{controller.N}_BRS.png')
+    plt.title(f"Joint {i + 1}, Horizon {controller.N}, Safety margin {sm}")
+    plt.savefig(f'{params.DATA_DIR}{i + 1}dof_{controller.N}_BRS.png')
 
 plt.show()

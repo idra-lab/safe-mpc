@@ -50,7 +50,7 @@ def update_ee(value):
 def create_gui():
     global scale_joints, position_ee
     master = tk.Tk(className='Z1 Robot GUI')
-    scale_joints = ScaleJoints(master, 'Joint', 4, 
+    scale_joints = ScaleJoints(master, 'Joint', 6, 
                                rmodel_red.lowerPositionLimit, 
                                rmodel_red.upperPositionLimit, 
                                np.pi / 2, 300, update_ee)
@@ -81,12 +81,12 @@ lockNames = ['joint5', 'joint6', 'jointGripper']
 for name in lockNames:
     lockIDs.append(rmodel.getJointId(name))
 
-rmodel_red, geom_red = pin.buildReducedModel(rmodel, geom, lockIDs, np.zeros(7))
+rmodel_red, geom_red = pin.buildReducedModel(rmodel, geom, lockIDs[6-4:], np.zeros(7))
 rdata = rmodel_red.createData()
 viz = pin.visualize.MeshcatVisualizer(rmodel_red, geom_red[0], geom_red[1])
 viz.initViewer(loadModel=True, open=True)
-viz.setCameraPosition(np.array([0.5, -0.5, 0.4]))
-viz.setCameraTarget(np.array([0., 1, 0.]))
+# viz.setCameraPosition(np.array([0.5, -0.5, 0.4]))
+# viz.setCameraTarget(np.array([0., 1, 0.]))
 viz.display(np.zeros(rmodel_red.nq))
 frame_id = rmodel_red.getFrameId(params.frame_name)
 

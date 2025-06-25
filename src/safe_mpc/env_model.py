@@ -14,6 +14,7 @@ from .safe_set import NetSafeSet, AnalyticSafeSet
 import xml.etree.ElementTree as ET
 from .utils import rot_mat_x,rot_mat_y,rot_mat_z, casadi_segment_dist,ball_segment_dist,sphere_sphere_dist,plane_sphere_dist, randomize_model
 
+
 class AdamModel:
     def __init__(self, params):
         self.params = params
@@ -30,7 +31,10 @@ class AdamModel:
 
         joint_names = [joint.name for joint in robot_joints]
 
-        randomize_model(params.robot_urdf, noise_mass = 0, noise_inertia = 0, noise_cm_position = 0)
+        self.rng = np.random.default_rng(seed=0)
+
+
+        #randomize_model(params.robot_urdf, noise_mass = 0, noise_inertia = 0, noise_cm_position = 0)
 
         # Formal assumed model, used by controller
         self.kin_dyn = KinDynComputations(params.robot_urdf, joint_names, self.params.robot_descr.get_root())        
@@ -41,7 +45,7 @@ class AdamModel:
         self.fk = self.kin_dyn.forward_kinematics_fun(params.frame_name)     # Forward kinematics
 
         # Model with noise
-        self.kin_dyn_noisy = KinDynComputations(params.robot_urdf[:-5] + '_randomized.urdf', joint_names, self.params.robot_descr.get_root())        
+        self.kin_dyn_noisy = KinDynComputations(params.robot_urdf, joint_names, self.params.robot_descr.get_root())        
         self.kin_dyn_noisy.set_frame_velocity_representation(adam.Representations.MIXED_REPRESENTATION)
         self.mass_noisy = self.kin_dyn_noisy.mass_matrix_fun()                           # Mass matrix
         self.bias_noisy = self.kin_dyn_noisy.bias_force_fun()                            # Nonlinear effects  
@@ -110,6 +114,11 @@ class AdamModel:
         self.tau_max = joint_effort
         self.x_min = np.hstack([joint_lower, - joint_velocity])
         self.x_max = np.hstack([joint_upper, joint_velocity])
+
+        self.bounds_diff = np.abs(self.x_max-self.x_min)
+
+        self.x_min -= self.bounds_diff*(self.params.q_margin/100)
+        self.x_max += self.bounds_diff*(self.params.q_margin/100)
 
         # EE target
         self.ee_ref = self.params.ee_ref
@@ -183,6 +192,8 @@ class AdamModel:
     def integrate(self, x, u):
         x_next = np.zeros(self.nx)
         tau = np.array(self.tau_noisy_fun(x, u).T)
+        # Add Gaussian noise to the control
+        tau += self.rng.normal(np.zeros(self.nu),self.tau_max*(self.params.control_noise/100),size=self.nu)
         # Cannot exceed the torque limits --> sat and compute forward dynamics on real system 
         H_b = np.eye(4)
         tau_sat = np.clip(tau, self.tau_min, self.tau_max)
@@ -193,6 +204,10 @@ class AdamModel:
         # x_next[self.nq:] = x[self.nq:] + self.params.dt * u
         x_next = np.array(self.f_fun(x,u)).squeeze()
         return x_next, u
+    
+    def integrate_naively(self, x, u):
+        x_next = np.array(self.f_fun(x,u)).squeeze()
+        return x_next
 
     def integrate_controller_model(self, x, u):
         x_next = np.zeros(self.nx)
@@ -248,48 +263,69 @@ class AdamModel:
         for i,pair in enumerate(self.params.collisions_pairs):
             if pair['type'] == 'capsule-capsule':
                 constraint_list_0.append([casadi_segment_dist(*pair['elements'][0]['end_points_fk'],*pair['elements'][1]['end_points_fk']), \
-                                        (pair['elements'][0]['radius']+pair['elements'][1]['radius'])**2,1e6])
+                                        (pair['elements'][0]['radius']+pair['elements'][1]['radius']+self.params.collision_margin*2)**2,1e6])
+                self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}_{pair['elements'][0]['name']}_{pair['elements'][1]['name']}",[self.x],[constraint_list_0[-1][0]]), \
+                                        (pair['elements'][0]['radius']+pair['elements'][1]['radius'])**2-self.params.tol_obs,1e6+self.params.tol_obs])
+                # constraint_list_0[-1][1] += self.params.collision_margin**2
                 constraint_list_1_N_minus_1.append(constraint_list_0[-1])
                 constraint_list_N.append(constraint_list_0[-1])
-                self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}_{pair['elements'][0]['name']}_{pair['elements'][1]['name']}",[self.x],[constraint_list_N[-1][0]]), \
-                                        constraint_list_N[-1][1]-self.params.tol_obs,constraint_list_N[-1][2]+self.params.tol_obs])
+                # print(pair['type'])
+                # print(f'constraint {constraint_list_N[-1][1]}  constr_fun {self.collisions_constr_fun[-1][1]}')
             elif pair['type'] == 'capsule-sphere':
                 constraint_list_0.append([ball_segment_dist(*pair['elements'][0]['end_points_fk'],pair['elements'][0]['length'],pair['elements'][1]['position']), \
-                                        (pair['elements'][1]['radius']+pair['elements'][0]['radius'])**2,1e6])
+                                        (pair['elements'][1]['radius']+pair['elements'][0]['radius']+self.params.collision_margin*2)**2,1e6])
+                self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}_{pair['elements'][0]['name']}_{pair['elements'][1]['name']}",[self.x],[constraint_list_0[-1][0]]), \
+                                        (pair['elements'][1]['radius']+pair['elements'][0]['radius'])**2-self.params.tol_obs,1e6+self.params.tol_obs])
+                # constraint_list_0[-1][1] += self.params.collision_margin**2
                 constraint_list_1_N_minus_1.append(constraint_list_0[-1])
                 constraint_list_N.append(constraint_list_0[-1])
-                self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}_{pair['elements'][0]['name']}_{pair['elements'][1]['name']}",[self.x],[constraint_list_N[-1][0]]), \
-                                        constraint_list_N[-1][1]-self.params.tol_obs,constraint_list_N[-1][2]+self.params.tol_obs])
+                # print(pair['type'])
+                # print(f'constraint {constraint_list_N[-1][1]}  constr_fun {self.collisions_constr_fun[-1][1]}')
+                
             elif pair['type'] == 'capsule-plane':
                 for point in pair['elements'][0]['end_points_fk']:
-                    constraint_list_0.append([point[pair['elements'][1]['perpendicular_axis']],pair['elements'][1]['bounds'][0]+pair['elements'][0]['radius'],pair['elements'][1]['bounds'][1]-pair['elements'][0]['radius']])
+                    constraint_list_0.append([point[pair['elements'][1]['perpendicular_axis']],pair['elements'][1]['bounds'][0]+pair['elements'][0]['radius']+self.params.collision_margin*2,pair['elements'][1]['bounds'][1]-pair['elements'][0]['radius']-self.params.collision_margin*2])
+                    self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}_{pair['elements'][0]['name']}_{pair['elements'][1]['name']}",[self.x],[constraint_list_0[-1][0]]), \
+                                        pair['elements'][1]['bounds'][0]+pair['elements'][0]['radius']-self.params.tol_obs,pair['elements'][1]['bounds'][1]-pair['elements'][0]['radius']+self.params.tol_obs])
+                    # constraint_list_0[-1][1] += self.params.collision_margin
+                    # constraint_list_0[-1][2] -= self.params.collision_margin
                     constraint_list_1_N_minus_1.append(constraint_list_0[-1])
                     constraint_list_N.append(constraint_list_0[-1])
-                    self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}_{pair['elements'][0]['name']}_{pair['elements'][1]['name']}",[self.x],[constraint_list_N[-1][0]]), \
-                                        constraint_list_N[-1][1]-1*self.params.tol_obs,constraint_list_N[-1][2]+1*self.params.tol_obs])
+                    # print(pair['type'])
+                    # print(f'constraint {constraint_list_N[-1][1]}  constr_fun {self.collisions_constr_fun[-1][1]}')
+
+                    
             elif pair['type'] == 'sphere-sphere':
                 #constr_expr = sphere_sphere_dist(pair['elements'][1],pair['elements'][0]['fk'])
                 constr_expr = (self.t_glob - pair['elements'][1]['position']).T @ (self.t_glob - pair['elements'][1]['position'])
-                constraint_list_0.append([constr_expr, (pair['elements'][0]['radius']+pair['elements'][1]['radius'])**2,1e6])
+                constraint_list_0.append([constr_expr, (pair['elements'][0]['radius']+pair['elements'][1]['radius'] + self.params.collision_margin*2)**2,1e6])
+                self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}_{pair['elements'][0]['name']}_{pair['elements'][1]['name']}",[self.x],[constraint_list_0[-1][0]]), \
+                                        (pair['elements'][0]['radius']+pair['elements'][1]['radius'])**2-self.params.tol_obs,1e6+self.params.tol_obs])
+                # constraint_list_0[-1][1] += self.params.collision_margin**2
                 constraint_list_1_N_minus_1.append(constraint_list_0[-1])
                 constraint_list_N.append(constraint_list_0[-1])
-                self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}_{pair['elements'][0]['name']}_{pair['elements'][1]['name']}",[self.x],[constraint_list_N[-1][0]]), \
-                                        constraint_list_N[-1][1]-self.params.tol_obs,constraint_list_N[-1][2]+self.params.tol_obs])
+
             if pair['type'] == 'sphere-plane':
                 constr_expr = plane_sphere_dist(pair['elements'][1],pair['elements'][0]['fk'])
-                constraint_list_0.append([constr_expr,pair['elements'][1]['bounds'][0] + pair['elements'][0]['radius'],pair['elements'][1]['bounds'][1] - pair['elements'][0]['radius']])
+                constraint_list_0.append([constr_expr,pair['elements'][1]['bounds'][0] + pair['elements'][0]['radius']+self.params.collision_margin*2,pair['elements'][1]['bounds'][1] - pair['elements'][0]['radius']-self.params.collision_margin*2])
+                self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}_{pair['elements'][0]['name']}_{pair['elements'][1]['name']}",[self.x],[constraint_list_0[-1][0]]), \
+                                        pair['elements'][1]['bounds'][0] + pair['elements'][0]['radius']-self.params.tol_obs,pair['elements'][1]['bounds'][1] - pair['elements'][0]['radius']+self.params.tol_obs])
+                # constraint_list_0[-1][1] += self.params.collision_margin
+                # constraint_list_0[-1][2] -= self.params.collision_margin
                 constraint_list_1_N_minus_1.append(constraint_list_0[-1])
                 constraint_list_N.append(constraint_list_0[-1])
-                self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}_{pair['elements'][0]['name']}_{pair['elements'][1]['name']}",[self.x],[constraint_list_N[-1][0]]), \
-                                        constraint_list_N[-1][1]-self.params.tol_obs,constraint_list_N[-1][2]+self.params.tol_obs])
+
        
         return constraint_list_0,constraint_list_1_N_minus_1,constraint_list_N
     
-    def update_randomized_dynamics(self):
+    def update_randomized_dynamics(self,controller_name=''):
         # Model with noise
-        self.kin_dyn_noisy = KinDynComputations(self.params.robot_urdf[:-5] + '_randomized.urdf', self.joint_names, self.params.robot_descr.get_root())        
+        self.kin_dyn_noisy = KinDynComputations(self.params.robot_urdf[:-5] + f'_randomized{controller_name}.urdf', self.joint_names, self.params.robot_descr.get_root())        
         self.kin_dyn_noisy.set_frame_velocity_representation(adam.Representations.MIXED_REPRESENTATION)
         self.mass_noisy = self.kin_dyn_noisy.mass_matrix_fun()                           # Mass matrix
         self.bias_noisy = self.kin_dyn_noisy.bias_force_fun()                            # Nonlinear effects  
         self.gravity_noisy = self.kin_dyn_noisy.gravity_term_fun()                       # Gravity vector
         self.fk_noisy = self.kin_dyn_noisy.forward_kinematics_fun(self.params.frame_name)     # Forward kinematics
+
+    def reset_seed(self,seed):
+        self.rng = np.random.default_rng(seed=seed) 

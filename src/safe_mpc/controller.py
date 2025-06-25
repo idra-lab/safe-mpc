@@ -6,9 +6,8 @@ from acados_template import AcadosOcp, AcadosOcpSolver
 from copy import deepcopy
 import casadi as cs
 import sympy as sym
-from .safe_set import NetSafeSet, AnalyticSafeSet
-from .cost_definition import *
-
+from safe_mpc.safe_set import NetSafeSet, AnalyticSafeSet
+from safe_mpc.cost_definition import *
 
 class AbstractController:
     def __init__(self, model):
@@ -38,17 +37,21 @@ class AbstractController:
         self.ocp.parameter_values = np.hstack([self.model.ee_ref, [self.model.params.alpha, 1.]])
 
         # Bound constraints
-        self.ocp.constraints.lbx_0 = self.model.x_min
-        self.ocp.constraints.ubx_0 = self.model.x_max
+        self.ocp.constraints.lbx_0 = self.model.x_min + (self.model.params.q_margin/100) * self.model.bounds_diff
+        self.ocp.constraints.ubx_0 = self.model.x_max - (self.model.params.q_margin/100) * self.model.bounds_diff
         self.ocp.constraints.idxbx_0 = np.arange(self.model.nx)
 
-        self.ocp.constraints.lbx = self.model.x_min
-        self.ocp.constraints.ubx = self.model.x_max
+        self.ocp.constraints.lbx = self.model.x_min + (self.model.params.q_margin/100) * self.model.bounds_diff
+        self.ocp.constraints.ubx = self.model.x_max - (self.model.params.q_margin/100) * self.model.bounds_diff
         self.ocp.constraints.idxbx = np.arange(self.model.nx)
 
-        self.ocp.constraints.lbx_e = self.model.x_min
-        self.ocp.constraints.ubx_e = self.model.x_max
+        self.ocp.constraints.lbx_e = self.model.x_min + (self.model.params.q_margin/100) * self.model.bounds_diff
+        self.ocp.constraints.ubx_e = self.model.x_max - (self.model.params.q_margin/100) * self.model.bounds_diff
         self.ocp.constraints.idxbx_e = np.arange(self.model.nx)
+
+        print(self.model.x_min)
+        print(self.ocp.constraints.lbx_0)
+        print(self.model.params.q_margin)
 
         # Nonlinear constraints
         self.nl_con_0, self.nl_con, self.nl_con_e = self.model.NL_external
@@ -56,7 +59,6 @@ class AbstractController:
         self.zl_0,self.zu_0,self.Zl_0,self.Zu_0 = np.zeros(0),np.zeros(0),np.zeros(0),np.zeros(0)
         self.zl,self.zu,self.Zl,self.Zu = np.zeros(0),np.zeros(0),np.zeros(0),np.zeros(0)
         self.zl_e,self.zu_e,self.Zl_e,self.Zu_e = np.zeros(0),np.zeros(0),np.zeros(0),np.zeros(0)
-
 
         # Additional settings, in general is an empty method
         self.additionalSetting()
@@ -82,17 +84,18 @@ class AbstractController:
 
         # Solver options
         self.ocp.solver_options.integrator_type = "DISCRETE"
-        #self.ocp.solver_options.hessian_approx = "EXACT"
-        self.ocp.solver_options.exact_hess_constr = 0
-        self.ocp.solver_options.exact_hess_dyn = 0   
+        #self.ocp.solver_options.hessian_approx = "EXACT"   
         self.ocp.solver_options.nlp_solver_type = self.model.params.solver_type
         self.ocp.solver_options.hpipm_mode = self.model.params.solver_mode
         # self.ocp.solver_options.qp_solver = 'FULL_CONDENSING_HPIPM'
         self.ocp.solver_options.nlp_solver_max_iter = self.model.params.nlp_max_iter
         self.ocp.solver_options.qp_solver_iter_max = self.model.params.qp_max_iter
         self.ocp.solver_options.globalization = self.model.params.globalization
-        self.ocp.solver_options.levenberg_marquardt = self.model.params.levenberg_marquardt
+        self.ocp.solver_options.levenberg_marquardt = self.model.params.levenberg_marquardt #if self.model.params.solver_type == 'SQP_RTI' else 0.
         #self.ocp.solver_options.ext_fun_compile_flags = self.model.params.ext_flag
+        self.ocp.solver_options.exact_hess_constr = 0
+        self.ocp.solver_options.exact_hess_cost = 0
+        self.ocp.solver_options.exact_hess_dyn = 0
 
         self.reset_controller()        
 
@@ -213,15 +216,9 @@ class AbstractController:
         """
         Correct guess, integrating with the plant dynamics known by the controller (actually at the moment the real dynamics is used)
         """
-        x_sim = np.copy(self.x_guess)
-        u_sim = np.copy(self.u_guess)
         for i in range(self.N):
-            x_sim[i + 1], u_sim[i] = self.model.integrate(x_sim[i], self.u_guess[i])
-        if self.model.checkStateConstraints(x_sim):
-            self.x_guess = np.copy(x_sim)
-            self.u_guess = np.copy(u_sim)
-            return True
-        return False
+            self.x_guess[i + 1] = self.model.integrate_naively(self.x_guess[i], self.u_guess[i])
+        
     
     def reset_controller(self):
         self.fails = 0
@@ -232,9 +229,9 @@ class AbstractController:
     def set_cost(self,cost):
         cost.set_solver_cost(self)
     
-    def build_controller(self,build=True):
+    def build_controller(self,build=True,name=''):
         self.ocp_name = "".join(re.findall('[A-Z][^A-Z]*', self.__class__.__name__)[:-1]).lower() + self.model.params.solver_type + self.net_name
-        gen_name = self.model.params.GEN_DIR + 'ocp_' + self.ocp_name + '_' + self.model.amodel.name
+        gen_name = self.model.params.GEN_DIR + 'ocp_' + self.ocp_name + '_' + self.model.amodel.name + '_' + name
         self.ocp.code_export_directory = gen_name
         self.ocp_solver = AcadosOcpSolver(self.ocp, json_file=gen_name + '.json', generate=build, build=build)
         self.build_flag = True
@@ -263,6 +260,9 @@ class NaiveController(AbstractController):
         return 0
 
     def step(self, x):
+        # integrate_dynamics for a better guess
+        self.guessCorrection()
+
         status = self.solve(x)
         if status == 0:
             self.fails = 0
@@ -286,13 +286,23 @@ class TerminalZeroVelocity(NaiveController):
         super().__init__(model)
 
     def additionalSetting(self):
-        x_min_e = np.hstack((self.model.x_min[:self.model.nq], np.zeros(self.model.nv)))
-        x_max_e = np.hstack((self.model.x_max[:self.model.nq], np.zeros(self.model.nv)))
+        x_min_e = np.hstack((self.ocp.constraints.lbx[:self.model.nq], -0*2e-2*np.ones(self.model.nv)))
+        x_max_e = np.hstack((self.ocp.constraints.ubx[:self.model.nq],  0*2e-2*np.ones(self.model.nv)))
 
         self.ocp.constraints.lbx_e = x_min_e
         self.ocp.constraints.ubx_e = x_max_e
         self.ocp.constraints.idxbx_e = np.arange(self.model.nx)
 
+    def step(self, x):
+        # integrate_dynamics for a better guess
+        self.guessCorrection()
+        status = self.solve(x)
+        if status == 0: # and (np.abs(self.x_temp[-1,self.model.nq:]<1e-2)).all():
+            self.fails = 0
+        else:
+            self.fails += 1
+        self.current_step +=1
+        return self.provideControl()
 
 class STController(NaiveController):
     def __init__(self, model):
@@ -350,6 +360,8 @@ class STWAController(STController):
                np.all([self.model.checkCollision(x) for x in self.x_temp])
 
     def step(self, x):
+        # integrate_dynamics for a better guess
+        self.guessCorrection()
         status = self.solve(x)
         if status == 0 and self.model.checkStateConstraints(self.x_temp):
             self.fails = 0
@@ -391,7 +403,9 @@ class RecedingController(STWAController):
         bounds = self.safe_set.get_bounds()
         constraint_num = 0
         for i, constr in enumerate(safe_set_constraints):
-            self.nl_con.append([casadi_if_else(self.cs_if_else_param,constr,bounds[i]),bounds[i][0],bounds[i][1]])
+            #self.nl_con.append([casadi_if_else(self.cs_if_else_param,constr,bounds[i]),bounds[i][0],bounds[i][1]])
+            self.nl_con.append([constr,bounds[i][0],bounds[i][1]])
+
             constraint_num += constr.shape[0]
 
         if self.model.params.use_net:
@@ -417,11 +431,13 @@ class RecedingController(STWAController):
         self.r = self.N
 
     def step(self, x):
+        # integrate_dynamics for a better guess
+        self.guessCorrection()
         # Terminal constraint
         self.ocp_solver.cost_set(self.N, 'zl', self.model.params.ws_t * np.ones((self.zl_e.size,)))
         self.ocp_solver.cost_set(self.N, 'zu', self.model.params.ws_t * np.ones((self.zl_e.size,)))
         self.ocp_solver.set(self.N, "p", np.hstack([self.model.ee_ref, [self.model.params.alpha, 1.]]))
-        
+    
         # Receding constraint
         if self.r < self.N:
             self.ocp_solver.cost_set(self.r, 'zl', self.model.params.ws_r * np.ones((self.zl.size,)))
@@ -436,19 +452,19 @@ class RecedingController(STWAController):
                 self.ocp_solver.set(i, "p", np.hstack([self.model.ee_ref, [self.model.params.alpha, -1.]]))
         # Solve the OCP
         status = self.solve(x)
-
+    
         if self.abort_flag:
-            self.r -= 1          
+            self.r -= 1
         else:
             if self.r > 0:
                 self.r -= 1
-
+    
         if self.r == 0 and self.abort_flag:
             self.x_viable = np.copy(self.x_guess[1])
             # Put back the receding constraint on last state for next iteration after abort
             self.r = self.N
             return self.u_guess[0], True
-
+    
         if status == 0 and self.model.checkStateConstraints(self.x_temp) :
             self.fails = 0
             for i in range(self.r + 2, self.N + 1):
@@ -456,9 +472,18 @@ class RecedingController(STWAController):
                     self.r = i - 1
         else:
             self.fails += 1
-        
+    
         self.current_step += 1
         return self.provideControl()
+
+    # def step(self, x):
+    #     status = self.solve(x)
+    #     if status == 0: # and (np.abs(self.x_temp[-1,self.model.nq:]<1e-2)).all():
+    #         self.fails = 0
+    #     else:
+    #         self.fails += 1
+    #     self.current_step +=1
+    #     return self.provideControl()
     
     def resetHorizon(self, N):
         super().resetHorizon(N)
@@ -553,8 +578,8 @@ class ParallelController(RecedingController):
 
     def additionalSetting(self):
         # Terminal constraint before, since it construct the nn model
-        self.terminalSetConstraint(soft=False)
-        self.runningSetConstraint(soft=False)
+        self.terminalSetConstraint(soft=True)
+        self.runningSetConstraint(soft=True)
 
     def constrain_n(self,n_constr):
         self.ocp_solver.cost_set(n_constr, 'zl' , self.model.params.ws_r * np.ones((self.zl.size,)))
@@ -592,6 +617,8 @@ class ParallelController(RecedingController):
         return constr_ver if success else 0
 
     def step(self,x):
+        # integrate_dynamics for a better guess
+        self.guessCorrection()
         node_success = 0
         for i in reversed(self.constraints):
             result = self.sing_step(x,i)
@@ -628,10 +655,33 @@ class ParalleltwoController2(RecedingController):
         self.r = self.N
         self.constraints = np.linspace(1,self.N,self.N).round().astype(int).tolist()
 
+    def terminalSetConstraint(self, soft=True):
+        from .utils import casadi_if_else
+        # Get the actual number of nl_constraints --> will be the index for the soft constraint
+        num_nl_e = np.sum([c[0].shape[0] for c in self.nl_con_e])
+        safe_set_constraints = self.safe_set.get_constraints()
+        bounds = self.safe_set.get_bounds()
+        constraint_num = 0
+        for i, constr in enumerate(safe_set_constraints):
+            self.nl_con_e.append([casadi_if_else(self.cs_if_else_param,constr,bounds[i]),bounds[i][0],bounds[i][1]])
+            constraint_num += constr.shape[0]
+
+        if self.model.params.use_net:
+            self.ocp.solver_options.model_external_shared_lib_dir = self.safe_set.l4c_model.shared_lib_dir
+            self.ocp.solver_options.model_external_shared_lib_name = self.safe_set.l4c_model.name
+
+        if soft:
+            self.idxhs_e = np.hstack((self.idxhs_e,np.arange(num_nl_e, num_nl_e + constraint_num)))
+
+            self.zl_e = np.hstack((self.zl_e,self.model.params.ws_t*np.ones(self.idxhs_e.size)))
+            self.zu_e = np.hstack((self.zu_e,np.zeros(self.idxhs_e.size)))
+            self.Zl_e = np.hstack((self.Zl_e,np.zeros(self.idxhs_e.size)))
+            self.Zu_e = np.hstack((self.Zu_e,np.zeros(self.idxhs_e.size)))
+
     def additionalSetting(self):
         # Terminal constraint before, since it construct the nn model
-        self.terminalSetConstraint(soft=True)
-        self.runningSetConstraint(soft=True)
+        self.terminalSetConstraint(soft=False)
+        self.runningSetConstraint(soft=False)
 
     def constrain_n(self,n_constr):
         self.ocp_solver.cost_set(n_constr, 'zl' , self.model.params.ws_r * np.ones((self.zl.size,)))
@@ -660,7 +710,7 @@ class ParalleltwoController2(RecedingController):
         checked_r = self.check_safe_n()
         if (status==0):
         
-            constr_ver =checked_r if checked_r >= self.r else min(n_constr,self.r)
+            constr_ver = checked_r if checked_r >= self.r else min(n_constr,self.r)
            
             if (constr_ver-self.r>=0) and\
                 self.model.checkStateConstraints(self.x_temp):
@@ -669,6 +719,7 @@ class ParalleltwoController2(RecedingController):
         return constr_ver if success else 0
 
     def step(self,x):
+        self.guessCorrection()
         node_success = 0
         for i in reversed(self.constraints):
             result = self.sing_step(x,i)

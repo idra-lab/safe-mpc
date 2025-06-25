@@ -15,6 +15,7 @@ class AbstractCost():
         #controller.ocp.cost.cost_type_0 = self.cost_type
         controller.ocp.cost.cost_type = self.cost_type
         controller.ocp.cost.cost_type_e = self.cost_type
+        controller.ocp.solver_options.hessian_approx = "EXACT"
     
     def set_cost_expr(self,controller):
         pass

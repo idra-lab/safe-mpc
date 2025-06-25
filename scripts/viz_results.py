@@ -1,7 +1,7 @@
 import pickle
 import time
 import numpy as np
-from safe_mpc.parser import Parameters
+from safe_mpc.parser import Parameters, parse_args
 from safe_mpc.utils import rot_mat_x, rot_mat_y, rot_mat_z 
 from safe_mpc.robot_visualizer import RobotVisualizer
 from safe_mpc.env_model import AdamModel
@@ -9,34 +9,34 @@ from safe_mpc.cost_definition import *
 from safe_mpc.controller import NaiveController, AbstractController, RecedingController
 import meshcat
 
+args = parse_args()
 RENDER_CAPS = True
-params = Parameters('z1', True)
+params = Parameters(args,'z1', True)
 params.build = False
 model = AdamModel(params)
-cost = TrackingMovingCircleNLS(model,params.Q_weight,params.R_weight)
-#cost = ReachTargetNLS(model,params.Q_weight,params.R_weight)
+#cost = Tracking8NLS(model,params.Q_weight,params.R_weight)
+cost = ReachTargetNLS(model,params.Q_weight,params.R_weight)
 robot = NaiveController(model)
-robot.track_traj = True
-rviz = RobotVisualizer(params, 4)
+robot.track_traj = False
+rviz = RobotVisualizer(params, robot.model.params.nq)
 if not(robot.track_traj):
     rviz.setTarget(params.ee_ref)
 
 if robot.model.params.obstacles != None:
     rviz.addObstacles(robot.model.params.obstacles)
 
-data = pickle.load(open(f'{params.DATA_DIR}z1_naive_use_netNone_45hor_10sm_traj_trackmpc.pkl', 'rb'))
+data = pickle.load(open(f'{params.DATA_DIR}z1_receding_use_netTrue_45hor_20sm_noise_0.0_control_noise0.0_q_collision_margins_0.0_0.0_IPOPT_mpc.pkl', 'rb'))
 
 #data = pickle.load(open(f'{params.DATA_DIR}x_traj_opt.pkl','rb'))
 #x=data
 
 x = data['x']
-
+#x=x.reshape((1,x.shape[0],x.shape[1]))
 time.sleep(1)
 for j in range(0,params.test_num):
     print(f"Trajectory {j + 1}")
     rviz.display(x[j][0, :model.nq])
     time.sleep(1)
-    print(robot.track_traj)
     if robot.track_traj:
         rviz.addTraj(cost.traj[:,0:params.N*3:30])
         rviz.vizTraj(cost.traj[:,0:params.N*3:30])
@@ -49,6 +49,7 @@ for j in range(0,params.test_num):
             rviz.init_capsule(robot.model.params.obst_capsules)  
 
     for i in range(params.n_steps):
+        print(f'EE position: {model.ee_fun(x[j][i])}')
         if np.isnan(x[j][i,0]):
             print(i)
             print(x[j][i])
