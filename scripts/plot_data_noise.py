@@ -26,22 +26,23 @@ mpl.rcParams['figure.facecolor'] = 'white'
 
 args = parse_args()
 model_name = args['system']
-params = Parameters(model_name, rti=True)
+params = Parameters(args, model_name, rti=True)
 hor = args['horizon']
 alpha = int(args['alpha'])
 model = AdamModel(params)
 
-cont_names = ['naive','zerovel', 'st', 'htwa', 'receding']
+cont_names = ['naive','zerovel', 'st', 'htwa', 'receding','parallel2','receding_parallel', 'constraint_everywhere']
 
 colors = ['tomato', 'mediumblue',  'darkorange', 'limegreen', 'darkgreen', 'purple','coral','peru']
 markers = ['o', 'x', '*', 's', '^', '>','H','D']
-labels = ['Naive', 'Zerovel', 'ST', 'HTWA', 'Receding']
+labels = ['Naive', 'Zerovel', 'ST', 'HTWA', 'Receding','Parallel','Receding2Problems','ConstraintEverywhere']
 
-horizons = [45]
-noises = [0.1, 1.3, 3.7, 5.0]
+horizons = [25]
+noises = [0.1, 1.3, 2.5, 3.7, 5.0]
+noises = [2.5, 5.0, 10.0, 15.0, 20.0, 25.0, 30.0]
 
-margin_joints=[0.1,1.3,2.6,5.0,10.0]
-margin_collision=[0.005, 0.008, 0.01, 0.02, 0.03]
+margin_joints = [0.1 ,0.2, 0.4, 0.6, 0.8, 1.0, 1.3, 2.6, 5.0]
+margin_collisions = [0.001, 0.001, 0.0015, 0.0015, 0.002, 0.003, 0.004, 0.006, 0.008]
 
 failures = {}
 
@@ -111,7 +112,7 @@ def plot_control_noise_level(alpha, horizon,margin_joints_index):
                 failures[c][h][noise]= {}
                 for jj in range(len(margin_joints)):
                     
-                    data_tmp = pickle.load(open(f'{params.DATA_DIR}{model_name}_{hor}hor_{int(alpha)}sm_noise{0.0}_control_noise{noise}_q_collision_margins_{margin_joints[jj]}_{margin_collision[jj]}_scores.pkl', 'rb'))
+                    data_tmp = pickle.load(open(f'{params.DATA_DIR}{model_name}_{h}hor_{int(alpha)}sm_noise{noise}_control_noise{0.0}_q_collision_margins_{margin_joints[jj]}_{margin_collisions[jj]}_scores.pkl', 'rb'))
                     failures[c][h][noise][margin_joints[jj]] = data_tmp[c]['fails']
 
     
@@ -127,9 +128,9 @@ def plot_control_noise_level(alpha, horizon,margin_joints_index):
     #plt.xticks(ticks=np.arange(1, len(cont_names) + 1), labels=cont_names)    
     plt.xticks(noises)
     plt.tight_layout()
-    plt.title(f'Joint margin = {margin_joints[margin_joints_index]}\%, collision margin {margin_collision[margin_joints_index]} m, horizon = {horizon}', fontsize=20)
-    plt.savefig(f'{params.DATA_DIR}noise_vs_fails_horizon{horizon}_joint margin = {margin_joints[margin_joints_index]}\%, collision margin {margin_collision[margin_joints_index]} m, horizon = {horizon}.svg', bbox_inches='tight',transparent=True)
-    plt.savefig(f'{params.DATA_DIR}noise_vs_fails_horizon{horizon}_joint margin = {margin_joints[margin_joints_index]}\%, collision margin {margin_collision[margin_joints_index]} m, horizon = {horizon}.png', bbox_inches='tight',transparent=False)
+    plt.title(f'Joint margin = {margin_joints[margin_joints_index]}\%, collision margin {margin_collisions[margin_joints_index]} m, horizon = {horizon}', fontsize=20)
+    plt.savefig(f'{params.DATA_DIR}noise_vs_fails_horizon{horizon}_joint margin = {margin_joints[margin_joints_index]}\%, collision margin {margin_collisions[margin_joints_index]} m, horizon = {horizon}.svg', bbox_inches='tight',transparent=True)
+    plt.savefig(f'{params.DATA_DIR}noise_vs_fails_horizon{horizon}_joint margin = {margin_joints[margin_joints_index]}\%, collision margin {margin_collisions[margin_joints_index]} m, horizon = {horizon}.png', bbox_inches='tight',transparent=False)
 
     plt.show()
     plt.close()
@@ -137,7 +138,7 @@ def plot_control_noise_level(alpha, horizon,margin_joints_index):
 
 #plot_horizons_fails_noise(20,2.5)
 for i in range(len(margin_joints)):
-    plot_control_noise_level(20,45,i)
+    plot_control_noise_level(20,25,i)
 
 
 

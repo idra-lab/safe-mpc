@@ -69,7 +69,9 @@ ocp_zerovel.build_controller(build = build_controllers)
 ocp_zerovel.resetHorizon(args['horizon'])
 
 
-
+params.test_num = 100
+params_naive.test_num = 100
+params_zerovel.test_num = 100
 
 
 num_ics = params.test_num
@@ -97,8 +99,8 @@ if not(ocp_with_net.model.params.track_traj):
 
         q0 = qmc.scale(sampler.random(), model.x_min[:model.nq], model.x_max[:model.nq])[0]
         if TEST_NOISE:
-            q0 = np.array([-0.6,2.513,-2.3,0.272])
-            #q0 = np.array([0.,0.,-0.226,0.])
+            #q0 = np.array([-0.6,2.513,-2.3,0.272])
+            q0 = np.array([-0.3,0.8,-1.65,0.658, 0.])
 
         x0 = np.zeros((model.nx,))
         x0[:model.nq] = q0
@@ -237,7 +239,7 @@ with open(f'{params.DATA_DIR}{model_name}_zerovel_{args["horizon"]}hor_{int(para
 
 if (args['controller']!= 'naive' and args['controller']!= 'zerovel'):
     for cont in controllers_list:
-        if cont in ['st','stwa','htwa','receding','real_receding','parallel','parallel2']:
+        if cont in ['st','stwa','htwa','receding','real_receding','receding_parallel','parallel2','constraint_everywhere']:
             with open(f'{params.DATA_DIR}{model_name}_{cont}_{args["horizon"]}hor_{int(params.alpha)}sm_use_net{ocp_with_net.model.params.use_net}_{traj__track}_q_collision_margins_{params.q_margin}_{params.collision_margin}_guess.pkl', 'wb') as f:
                 pickle.dump({'xg': np.asarray(x_guess_net), 'ug': np.asarray(u_guess_net)}, f)
 

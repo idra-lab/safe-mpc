@@ -14,7 +14,16 @@ args = parse_args()
 model_name = args['system']
 params = Parameters(args,model_name)
 
-rng1 = np.random.default_rng(seed=10)
+class RandomGenerator:
+    def __init__(self):
+        self.rng1 = np.random.default_rng(seed=0)
+
+    def reset_generator(self,seed):
+        self.rng1 = np.random.default_rng(seed)
+
+rng1 = RandomGenerator()
+
+    
 
 
 
@@ -45,6 +54,7 @@ def get_ocp_acados(cont_name, model) -> AbstractController:
                     'parallel2': HTWAController,
                     'st_analytic': HTWAController,
                     'htwa_analytic': HTWAController,
+                    'constraint_everywhere': HTWAController,
                     'receding_analytic': HTWAController,
                     'parallel_analytic': HTWAController}
     if cont_name in controllers:
@@ -58,9 +68,10 @@ def get_controller(cont_name, model) -> AbstractController:
                     'st': STController,
                     'htwa': HTWAController,
                     'receding': RecedingController,
-                    'parallel': ParallelController,
+                    'receding_parallel': RecedingParallelController,
                     'parallel2': ParalleltwoController2,
-                    'real_receding': RealReceding }
+                    'real_receding': RealReceding,
+                    'constraint_everywhere': ControllerSafeSetEverywhere}
     if cont_name in controllers:
         return controllers[cont_name](model)
     else:
@@ -128,7 +139,13 @@ def randomize_model(urdf_file_path,noise_mass=0, noise_inertia=0, noise_cm_posit
             if inertial is not None:
                 mass=inertial.find('mass')
                 noise = float(mass.get('value')) * noise_mass / 100
-                new_mass = float(mass.get('value')) + rng1.uniform(-noise, noise)
+                mass_noise_sample = rng1.rng1.uniform(-noise, noise)
+                new_mass = float(mass.get('value')) + mass_noise_sample
+
+                # print(f'new_mass: {new_mass}')
+                # break
+
+                print(f'Mass noise sample: {mass_noise_sample/noise_mass}')
                 #print(f'New mass changed from {mass.get("value")} to {new_mass}\n')
                 mass.set('value', str(new_mass))
                 #print(f'new_mass: {new_mass}')
@@ -136,7 +153,7 @@ def randomize_model(urdf_file_path,noise_mass=0, noise_inertia=0, noise_cm_posit
                 inertia = inertial.find('inertia')
                 for i in inertia_fields:
                     noise =  abs(float(inertia.get(i))) * noise_inertia / 100
-                    new_inertia = float(inertia.get(i))+rng1.uniform(-noise, noise)
+                    new_inertia = float(inertia.get(i))+rng1.rng1.uniform(-noise, noise)
                     #print(f'New inertia changed from {inertia.get(i)} to {new_inertia}')
                     inertia.set(i,str(new_inertia))
                 #print('\n')
@@ -149,7 +166,7 @@ def randomize_model(urdf_file_path,noise_mass=0, noise_inertia=0, noise_cm_posit
                 #print(f'New cm changed from {pos}') 
                 for i,e in enumerate(pos):
                     noise = abs(e*noise_cm_position / 100)
-                    pos[i] += rng1.uniform(-noise, noise)
+                    pos[i] += rng1.rng1.uniform(-noise, noise)
                     #print(f' to {pos[i]}\n')
                 cm_pos.set('xyz', ' '.join(map(str, pos)))
 
@@ -186,6 +203,10 @@ def randomize_model(urdf_file_path,noise_mass=0, noise_inertia=0, noise_cm_posit
 #     # Write the modified URDF back to a file
 #     tree.write(urdf_file_path[:-5] + '_randomized.urdf', encoding='utf-8', xml_declaration=True)
 
+def reset_rng1(seed):
+    rng1.reset_generator(seed)
+
+    
 def casadi_if_else(logic_var,expression,bounds):
         return(cs.if_else(logic_var > 0, 
                           expression, 

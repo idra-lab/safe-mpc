@@ -7,8 +7,8 @@ back_hor: 45
 dt: 5e-3                  # time step
 alpha: 10.                # safety margin 
 
-n_dofs: 4                 # number of controlled joints 
-n_dof_safe_set: 4
+n_dofs: 5                 # number of controlled joints 
+n_dof_safe_set: 5
 
 cost_type: 'NLS'          # NLS (non-linear least squares) or EXT (external)
 
@@ -62,16 +62,16 @@ use_net: true            # use the network safe set if true, otherwise analytic 
 #network_path: '../nn_models/z1/4dof_gelu_obs_track_line.pt'
 # network_path: '../nn_models/z1/5dof_gelu_dt10ms_ALPHA_10.pt'
 # network_path: '../nn_models/z1/5dof_gelu_dt10ms_ALPHA_12.pt'
-network_path: '../nn_models/z1/4dof_gelu_dt5ms2balls.pt'
-network_size: [8, 256, 1]                       # input, hidden and output size
+network_path: '../nn_models/z1/5dof_gelu_dt10ms_ALPHA_12.pt'
+network_size: [10, 256, 1]                       # input, hidden and output size
 act_fun: 'gelu'
 
 reg_term: 1e-6            # regularization term for anaytic safe set constraints 
 
 frame_ee: 'gripperMover'
 ee_position: [0.035, 0., 0.] # ee position in in frame_ee 
-ee_ref: [0.6, 0.28, 0.078] 
-ee_ref: [0.6, 0.4, 0.15] 
+ee_ref: [0.7, 0.17, 0.13] 
+#ee_ref: [0.7, 0.4, 0.12] 
 #ee_ref: [0.7, 0.38, 0.10] 
 ee_radius: 0.075
 
@@ -84,7 +84,7 @@ obstacles:
   - name: 'floor'
     type: 'plane'
     dimensions: [2, 2, 1e-3]
-    color: [0,0,1,1]
+    color: [0,0,0,1]
     position: [0.75,0,0]
     transform: 
       - [1,0,0,0]
@@ -107,29 +107,29 @@ obstacles:
     #   - [0,0,0,1]
     # bounds: [0,1e6]     # minimum and maximum distance from the sphere's surface. Minimum distance 0 means ball can be only touched lightly. 
 
-  - name: 'ball2'
-    type: 'sphere-obs'
-    radius: 0.05
-    color: [0,1,1,1]
-    position: [0.6,-0.2,0.12]
-    transform:
-      - [1,0,0,0.6]
-      - [0,1,0,-0.2]
-      - [0,0,1,0.12]
-      - [0,0,0,1]
-    bounds: [0,1e6] 
+  # - name: 'ball2'
+  #   type: 'sphere-obs'
+  #   radius: 0.05
+  #   color: [0,1,1,1]
+  #   position: [0.6,-0.2,0.12]
+  #   transform:
+  #     - [1,0,0,0.6]
+  #     - [0,1,0,-0.2]
+  #     - [0,0,1,0.12]
+  #     - [0,0,0,1]
+  #   bounds: [0,1e6] 
 
-  - name: 'ball3'
-    type: 'sphere-obs'
-    radius: 0.05
-    color: [0,1,1,1]
-    position: [0.6,0.2,0.12]
-    transform:
-      - [1,0,0,0.6]
-      - [0,1,0,0.2]
-      - [0,0,1,0.12]
-      - [0,0,0,1]
-    bounds: [0,1e6] 
+  # - name: 'ball3'
+  #   type: 'sphere-obs'
+  #   radius: 0.05
+  #   color: [0,1,1,1]
+  #   position: [0.6,0.2,0.12]
+  #   transform:
+  #     - [1,0,0,0.6]
+  #     - [0,1,0,0.2]
+  #     - [0,0,1,0.12]
+  #     - [0,0,0,1]
+  #   bounds: [0,1e6] 
 
 robot_capsules:
   - name: 'arm'
@@ -160,23 +160,23 @@ robot_capsules:
     color: [0,0,1,0.3]
 
 obstacles_capsules:
-  # - name: 'fixed1'
-  #   radius: 0.05
-  #   point_A: [0.5,0.20,0]
-  #   point_B: [0.5, 0.20, 0.25]
-  #   color: [0, 1, 1, 1]
+  - name: 'fixed1'
+    radius: 0.05
+    point_A: [0.5,0.20,0]
+    point_B: [0.5, 0.20, 0.25]
+    color: [0, 1, 1, 1]
 
-  # - name: 'fixed2'
-  #   radius: 0.05
-  #   point_A: [0.5, -0.20, 0.]
-  #   point_B: [0.5, -0.20, 0.25]
-  #   color: [0, 1, 1, 1]
+  - name: 'fixed2'
+    radius: 0.05
+    point_A: [0.5, -0.20, 0.]
+    point_B: [0.5, -0.20, 0.25]
+    color: [0, 1, 1, 1]
 
-  # - name: 'fixed3'
-  #   radius: 0.05
-  #   point_A: [0.5, -0.20, 0.25]
-  #   point_B: [0.5, 0.20, 0.25]
-  #   color: [0, 1, 1, 1]
+  - name: 'fixed3'
+    radius: 0.05
+    point_A: [0.5, -0.20, 0.25]
+    point_B: [0.5, 0.20, 0.25]
+    color: [0, 1, 1, 1]
 
 spheres_robot:
   # - name: 'ee_sphere'
@@ -191,18 +191,18 @@ collision_pairs:
   - ['ee', 'floor']
   - ['forearm','floor']
   #- ['forearm', 'ball']
-  # - ['ee','fixed1']
-  # - ['ee','fixed2']
-  # - ['ee','fixed3']
-  # - ['forearm','fixed1']
-  # - ['forearm','fixed2']
-  # - ['forearm','fixed3']
+  - ['ee','fixed1']
+  - ['ee','fixed2']
+  - ['ee','fixed3']
+  - ['forearm','fixed1']
+  - ['forearm','fixed2']
+  - ['forearm','fixed3']
   # - ['ee_sphere', 'floor']   
   # - ['ee_sphere', 'ball']
-  - ['ee','ball2']
-  - ['forearm','ball2']
-  - ['ee','ball3']
-  - ['forearm','ball3']
+  # - ['ee','ball2']
+  # - ['forearm','ball2']
+  # - ['ee','ball3']
+  # - ['forearm','ball3']
 
 
 track_traj: false

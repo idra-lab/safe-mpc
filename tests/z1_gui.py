@@ -3,7 +3,7 @@ import threading
 import numpy as np
 import tkinter as tk
 import pinocchio as pin
-from safe_mpc.parser import Parameters
+from safe_mpc.parser import Parameters, parse_args
 
 
 axes = ['x', 'y', 'z']
@@ -69,8 +69,8 @@ def run_visualizer():
         time_end = time.time()
         time.sleep(max(0, dt - (time_end - time_start)))
 
-
-params = Parameters('z1')
+args = parse_args()
+params = Parameters(args,'z1')
 description_dir = params.ROBOTS_DIR + 'z1_description'
 rmodel, collision, visual = pin.buildModelsFromUrdf(description_dir + '/urdf/z1.urdf',
                                                     package_dirs=params.ROOT_DIR)

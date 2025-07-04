@@ -284,7 +284,7 @@ class AdamModel:
                 
             elif pair['type'] == 'capsule-plane':
                 for point in pair['elements'][0]['end_points_fk']:
-                    constraint_list_0.append([point[pair['elements'][1]['perpendicular_axis']],pair['elements'][1]['bounds'][0]+pair['elements'][0]['radius']+self.params.collision_margin*2,pair['elements'][1]['bounds'][1]-pair['elements'][0]['radius']-self.params.collision_margin*2])
+                    constraint_list_0.append([point[pair['elements'][1]['perpendicular_axis']],pair['elements'][1]['bounds'][0]+pair['elements'][0]['radius']+2*self.params.collision_margin,pair['elements'][1]['bounds'][1]-pair['elements'][0]['radius']-2*self.params.collision_margin])
                     self.collisions_constr_fun.append([cs.Function(f"collision_constraint_{i}_{pair['elements'][0]['name']}_{pair['elements'][1]['name']}",[self.x],[constraint_list_0[-1][0]]), \
                                         pair['elements'][1]['bounds'][0]+pair['elements'][0]['radius']-self.params.tol_obs,pair['elements'][1]['bounds'][1]-pair['elements'][0]['radius']+self.params.tol_obs])
                     # constraint_list_0[-1][1] += self.params.collision_margin

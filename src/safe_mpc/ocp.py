@@ -193,31 +193,31 @@ class RecedingOCP(NaiveOCP):
     def additionalSetting(self):
         self.r = self.opti.parameter()
         self.opti.set_value(self.r,self.model.params.N)
-        self.ws_t = 1e3
+        self.ws_t = 1e2
         self.rec_constr_act = []
         for i in range(self.model.params.N):
             self.rec_constr_act.append(self.opti.parameter())
-            self.opti.set_value(self.rec_constr_act[-1],1e5)
+            self.opti.set_value(self.rec_constr_act[-1],1e3)
         self.create_safe_set()
         safe_set_funs = self.safe_set.get_constraints_fun()
         safe_set_bounds = self.safe_set.get_bounds()
         slack_vars = []
         for i,func in enumerate(safe_set_funs):
-            for j,state in enumerate(self.X[1:],start=0):
+            for j,state in enumerate(self.X[1:],start=1):
                 #self.opti.subject_to(self.opti.bounded(safe_set_bounds[i][0],cs.if_else(self.r[j] == self.r,func(state)+, (safe_set_bounds[i][0] + safe_set_bounds[i][1])/2,True),safe_set_bounds[i][1]))
-                self.opti.subject_to(self.opti.bounded(safe_set_bounds[i][0], func(state) + self.rec_constr_act[j],safe_set_bounds[i][1]))
+                self.opti.subject_to(self.opti.bounded(self.rec_constr_act[j-1], func(state), 1e6))
                 #self.opti.subject_to(self.opti.bounded(safe_set_bounds[i][0], cs.if_else(self.rec_constr_act[j]<1e3,func(state) + self.rec_constr_act[j],10,True),safe_set_bounds[i][1]))
-            # slack_vars.append(self.opti.variable(1))
-            # self.opti.subject_to(self.opti.bounded(safe_set_bounds[i][0],func(self.X[-1])+slack_vars[-1],safe_set_bounds[i][1]))     
-            # self.opti.subject_to(self.opti.bounded(0, slack_vars[-1], 1e6)) 
-            # self.cost += self.ws_t * slack_vars[-1]
+            slack_vars.append(self.opti.variable())
+            self.opti.subject_to(self.opti.bounded(safe_set_bounds[i][0],func(self.X[-1])+slack_vars[-1],safe_set_bounds[i][1]))     
+            self.opti.subject_to(self.opti.bounded(0, slack_vars[-1], 1e6)) 
+            self.cost += self.ws_t * slack_vars[-1]
         self.constrain_r()
 
     def constrain_r(self):
         for node in self.rec_constr_act:
-            self.opti.set_value(node,1e5)
-        self.opti.set_value(self.rec_constr_act[int(self.opti.value(self.r))-1],0)
-        self.opti.set_value(self.rec_constr_act[-1],0)
+            self.opti.set_value(node,-1e6)
+        self.opti.set_value(self.rec_constr_act[int(self.opti.value(self.r))-1],0.0)
+        #self.opti.set_value(self.rec_constr_act[-1],0)
 
 
     def step(self, x):

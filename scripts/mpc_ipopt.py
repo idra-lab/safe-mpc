@@ -137,8 +137,8 @@ for i in range(0,test_num):#x_init.shape[0]):
     params.ipopt_opts['ipopt.tol'] = ipopt_tol_MPC
     opti_controller= controller.instantiateProblem()
 
-    
-    for j in range(params.n_steps):
+    n_steps = 500
+    for j in range(n_steps):
         print(f'Step {j}', end=' ')
         # if controller.track_traj:
         #     traj_costs[i] += (controller.model.jointToEE(x_sim[-1])-controller.traj_to_track[:,1]).T @ controller.Q @ (controller.model.jointToEE(x_sim[-1])-controller.traj_to_track[:,1])

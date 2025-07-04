@@ -157,10 +157,11 @@ class Parameters:
         self.ddq_max = np.array(parameters['ddq_max'])
         self.ddx_max = np.array(parameters['ddx_max'])
 
-        self.collision_margin = float(parameters['collision_margin'])
         self.collision_margin = args['collision_margin']
 
+        self.noise = args["noise"]
         self.control_noise = args["control_noise"]
+
 
         # collision pairs
 

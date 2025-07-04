@@ -6,6 +6,7 @@ from safe_mpc.env_model import AdamModel
 from safe_mpc.utils import get_controller, randomize_model
 from safe_mpc.controller import SafeBackupController
 from safe_mpc.cost_definition import *
+import sys
 
 
 CALLBACK = True
@@ -73,7 +74,6 @@ safe_ocp.resetHorizon(params.back_hor)
 
 traj__track = 'traj_track' if controller.model.params.track_traj else "" 
 
-data = pickle.load(open(f'{params.DATA_DIR}{model_name}_{cont_name}_{horizon}hor_{int(params.alpha)}sm_use_net{controller.model.params.use_net}_{traj__track}_guess.pkl', 'rb'))
 joint_margin=args["joint_bounds_margin"]
 collision_margin=args["collision_margin"]
 data = pickle.load(open(f'{params.DATA_DIR}{model_name}_{cont_name}_{horizon}hor_{int(params.alpha)}sm_use_net{controller.model.params.use_net}_{traj__track}_q_collision_margins_{controller.model.params.q_margin}_{controller.model.params.collision_margin}_guess.pkl', 'rb'))
@@ -94,17 +94,20 @@ EVAL = False
 counters = np.zeros(5)
 not_conv = 0
 tau_viol = []
-kp, kd = 0.1, 1e2
+kp, kd = 1 , 1e2
 print(x_init.shape[0])
 
+failures=0
 
-for i in range(0,x_init.shape[0]):
+for i in range(0,params.test_num):#x_init.shape[0]):
     # randomize_model(params.robot_urdf, noise_mass = params.noise_mass, noise_inertia = params.noise_inertia, noise_cm_position = params.noise_cm, controller_name=args['controller'])
     # controller.model.update_randomized_dynamics(controller_name=args['controller'])
     # safe_ocp.model.update_randomized_dynamics(controller_name=args['controller'])
     controller.model.update_randomized_dynamics(controller_name=(f'noise{args["noise"]}_{i}'))
     safe_ocp.model.update_randomized_dynamics(controller_name=(f'noise{args["noise"]}_{i}'))
 
+    if i % 10 == 0:
+        print(f'Failures: {failures}')
     traj_costs[i] = 0
     print(f'Simulation {i + 1}/{params.test_num}')
     x0 = x_init[i]
@@ -123,13 +126,31 @@ for i in range(0,x_init.shape[0]):
         model_backup.reset_seed(i)
         # if controller.track_traj:
         #     traj_costs[i] += (controller.model.jointToEE(x_sim[-1])-controller.traj_to_track[:,1]).T @ controller.Q @ (controller.model.jointToEE(x_sim[-1])-controller.traj_to_track[:,1])
-        if sa_flag and ja < safe_ocp.N:
+        if sa_flag:
             # Follow safe abort trajectory (PD to stabilize at the end)
-            u[j] = u_abort[ja]
+            if ja < safe_ocp.N:
+                u[j] = u_abort[ja]
+                u[j] -= kp*(x_sim[j][:nq] - x_abort[ja][:nq]) + kd*(x_sim[j][nq:] - x_abort[ja][nq:]) 
+
+            elif ja >= safe_ocp.N:
+                print('Check safe abort')
+                if (x_sim[j][nq:] < 5e-3).all():
+                    print('successful, return to MPC')
+                    sa_flag = False
+                    u[j], sa_flag = controller.step(x_sim[j])
+                else:
+                    print(f'not successful final vel {x_sim[j][nq:]}, keep stabilizing with PD controller')
+                    u[j] = -(kp*(x_sim[j][:nq] - x_abort[-1][:nq]) + 3e2*(x_sim[j][nq:] - x_abort[-1][nq:]))
+                   
             ja += 1
             
+
         else:   
+            
             u[j], sa_flag = controller.step(x_sim[j])
+            # if args['controller'] in ['receding']:
+            #     print(f'At step {j}, r -> {controller.r}')
+
             # if args['controller'] in ['zerovel','receding','st','htwa']:
             #     if controller.ocp_solver.get_status() != 0:
             #         print(f'Status = {controller.ocp_solver.get_status()}')
@@ -141,6 +162,8 @@ for i in range(0,x_init.shape[0]):
                 if CALLBACK:
                     if params.urdf_name == 'z1':
                         print(f'  ABORT at step {j}, x = {x_viable[-1]}')
+                        print(f'Distance to q_max:{model.x_max - x_viable[-1]}')
+                        print(f'Distance to q_min:{-model.x_min + x_viable[-1]}')
                         if controller.model.params.use_net:
                             print(f'  NN output at abort with current alpha {int(params.alpha)}: ' 
                                 f'{controller.safe_set.nn_func_x(x_viable[-1])}')
@@ -157,7 +180,9 @@ for i in range(0,x_init.shape[0]):
                     if CALLBACK:
                         print('  SAFE ABORT FAILED')
                         print('  Current controller fails:', controller.fails)
+
                     collisions_idx.append(i)
+                    failures += 1
                     break
                 ja = 0
                 viable_idx.append(i)
@@ -213,6 +238,7 @@ for i in range(0,x_init.shape[0]):
         stats.append(controller.getTime())
         x_sim[j + 1], _ = model.integrate(x_sim[j], u[j])
         # print(f'State at problem {i} step {j+1} = {x_sim[j+1]}')
+        
 
 
         # Check next state bounds and collision
@@ -222,6 +248,8 @@ for i in range(0,x_init.shape[0]):
                 print(f'\tState {j + 1} violation: {np.min(np.vstack((model.x_max - x_sim[j + 1], x_sim[j + 1] - model.x_min)), axis=0)}')
                 print(f'Solver failures {controller.fails}')
                 print(f'State: {x_sim[j+1]}')
+            failures += 1
+
 
             collisions_idx.append(i)
             break
@@ -230,6 +258,8 @@ for i in range(0,x_init.shape[0]):
             if CALLBACK:
                 print(f'FAIL COLLISION at step {j + 1}')
                 print(f'Solver failures {controller.fails}')
+            
+            failures += 1
             break
         # Check convergence
         if j == params.n_steps -1:
@@ -281,3 +311,5 @@ with open(f'{params.DATA_DIR}{model_name}_{cont_name}_use_net{controller.model.p
                  'unconv_idx' : unconv_idx,
                  'viable_idx': viable_idx, 
                  'x_viable': np.asarray(x_viable)}, f)
+    
+sys.exit(len(collisions_idx))

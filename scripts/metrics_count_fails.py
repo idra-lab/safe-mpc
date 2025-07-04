@@ -31,7 +31,7 @@ args = parse_args()
 model_name = args['system']
 hor = args['horizon']
 alpha = args['alpha']
-params = Parameters(model_name, rti=True)
+params = Parameters(args, model_name, rti=True)
 model = AdamModel(params)
 noise = args['noise']
 
@@ -50,20 +50,24 @@ else:
     costs_states['states'] = []
     costs_states['costs'] = []
 
-cont_names = ['naive', 'zerovel', 'st', 'htwa', 'receding']#,'parallel2']
+cont_names = ['naive', 'zerovel', 'st', 'htwa', 'receding','parallel2','receding_parallel','constraint_everywhere']
 
 X_traj, U_traj, task_not_coll, task_failed = {}, {}, {}, {}
 for c in cont_names:
-    if c in ['st', 'htwa', 'receding','parallel2']:
+    if c in [ 'st', 'htwa', 'receding','parallel2','receding_parallel','constraint_everywhere']:
         #print(c)
         use_net = True
     else:
         use_net = None
-    data = pickle.load(open(f'{params.DATA_DIR}{model_name}_{c}_use_net{use_net}_{hor}hor_{int(args["alpha"])}sm_{traj__track}noise_{args["noise"]}_control_noise{args["control_noise"]}_q_collision_margins_{args["joint_bounds_margin"]}_{args["collision_margin"]}_mpc.pkl', 'rb'))
-    X_traj[c] = data['x']
-    U_traj[c] = data['u']
-    task_not_coll[c] = np.union1d(data['conv_idx'], data['unconv_idx'])
-    task_failed[c] = data['collisions_idx']
+    try:
+        data = pickle.load(open(f'{params.DATA_DIR}{model_name}_{c}_use_net{use_net}_{hor}hor_{int(args["alpha"])}sm_{traj__track}noise_{args["noise"]}_control_noise{args["control_noise"]}_q_collision_margins_{args["joint_bounds_margin"]}_{args["collision_margin"]}_mpc.pkl', 'rb'))
+        X_traj[c] = data['x']
+        U_traj[c] = data['u']
+        task_not_coll[c] = np.union1d(data['conv_idx'], data['unconv_idx'])
+        task_failed[c] = data['collisions_idx']
+    except:
+        task_not_coll[c] = [100]*100
+        task_failed[c] = []
 
 print('\n### Final scores: ###\n')
 res = {}
