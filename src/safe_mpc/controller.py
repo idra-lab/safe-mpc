@@ -225,7 +225,7 @@ class AbstractController:
     
     def guessCorrection(self):
         """
-        Correct guess, integrating with the plant dynamics known by the controller (actually at the moment the real dynamics is used)
+        Correct guess, integrating with the plant dynamics known by the controller
         """
         for i in range(self.N):
             self.x_guess[i + 1] = self.model.integrate_naively(self.x_guess[i], self.u_guess[i])
@@ -297,8 +297,8 @@ class TerminalZeroVelocity(NaiveController):
         super().__init__(model)
 
     def additionalSetting(self):
-        x_min_e = np.hstack((self.ocp.constraints.lbx[:self.model.nq], -1e-3*np.ones(self.model.nv)))
-        x_max_e = np.hstack((self.ocp.constraints.ubx[:self.model.nq],  1e-3*np.ones(self.model.nv)))
+        x_min_e = np.hstack((self.ocp.constraints.lbx[:self.model.nq], np.zeros(self.model.nv)))
+        x_max_e = np.hstack((self.ocp.constraints.ubx[:self.model.nq], np.zeros(self.model.nv)))
 
         self.ocp.constraints.lbx_e = x_min_e
         self.ocp.constraints.ubx_e = x_max_e

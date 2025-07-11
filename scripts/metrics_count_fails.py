@@ -52,7 +52,7 @@ else:
 
 cont_names = ['naive', 'zerovel', 'st', 'htwa', 'receding','parallel2','receding_parallel','constraint_everywhere']
 
-X_traj, U_traj, task_not_coll, task_failed = {}, {}, {}, {}
+X_traj, U_traj, task_not_coll, task_failed, costs = {}, {}, {}, {}, {}
 for c in cont_names:
     if c in [ 'st', 'htwa', 'receding','parallel2','receding_parallel','constraint_everywhere']:
         #print(c)
@@ -63,18 +63,30 @@ for c in cont_names:
         data = pickle.load(open(f'{params.DATA_DIR}{model_name}_{c}_use_net{use_net}_{hor}hor_{int(args["alpha"])}sm_{traj__track}noise_{args["noise"]}_control_noise{args["control_noise"]}_q_collision_margins_{args["joint_bounds_margin"]}_{args["collision_margin"]}_mpc.pkl', 'rb'))
         X_traj[c] = data['x']
         U_traj[c] = data['u']
-        task_not_coll[c] = np.union1d(data['conv_idx'], data['unconv_idx'])
         task_failed[c] = data['collisions_idx']
+        task_not_coll[c] = list(set(task_failed[c]) ^ set(np.arange(X_traj[c].shape[0])))
+
+        costs[c] = []
+        for i in range(X_traj[c].shape[0]):
+            if i in data['collisions_idx']:
+                costs[c].append(-100)
+            else:
+                costs[c].append(cost(X_traj[c][i],U_traj[c][i]))
+
     except:
-        task_not_coll[c] = [100]*100
+        print(f'Controller {c}, zero fails or file not available')
+        task_not_coll[c] = list(np.arange(params.test_num))
         task_failed[c] = []
+        costs[c] = [np.nan]*100
 
 print('\n### Final scores: ###\n')
 res = {}
 for c in cont_names:
     res[c] = {}
     res[c]['score'] = 0
-    res[c]['fails'] = len(task_failed[c])
+    res[c]['fails'] = len(task_failed[c])  
+    res[c]['costs'] = costs[c]
+    res[c]['completed_idx'] = task_not_coll[c]
 
 file_prefix = f'{params.DATA_DIR}{model_name}_{hor}hor_{int(alpha)}sm_noise{noise}_control_noise{args["control_noise"]}_q_collision_margins_{args["joint_bounds_margin"]}_{args["collision_margin"]}'
 with open(f'{file_prefix}_scores.pkl', 'wb') as f:
