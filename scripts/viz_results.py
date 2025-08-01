@@ -25,7 +25,7 @@ if not(robot.track_traj):
 if robot.model.params.obstacles != None:
     rviz.addObstacles(robot.model.params.obstacles)
 
-data = pickle.load(open(f'{params.DATA_DIR}z1_parallel2_use_netTrue_20hor_20sm_noise_2.5_control_noise0.0_q_collision_margins_0.1_0.001_mpc.pkl', 'rb'))
+data = pickle.load(open(f'{params.DATA_DIR}z1_naive_use_netNone_25hor_20sm_noise_2.5_control_noise0.0_q_collision_margins_0.1_0.001_mpc.pkl', 'rb'))
 
 #data = pickle.load(open(f'{params.DATA_DIR}x_traj_opt.pkl','rb'))
 #x=data
@@ -33,7 +33,7 @@ data = pickle.load(open(f'{params.DATA_DIR}z1_parallel2_use_netTrue_20hor_20sm_n
 x = data['x']
 #x=x.reshape((1,x.shape[0],x.shape[1]))
 time.sleep(1)
-for j in range(0,params.test_num):
+for j in range(35,params.test_num):
     print(f"Trajectory {j + 1}")
     rviz.display(x[j][0, :model.nq])
     time.sleep(1)
