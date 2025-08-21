@@ -4,9 +4,6 @@ This repo contains algorithms for Model Predictive Control, ensuring safety cons
 
 Until now we tested the framework with the Unitree Z1 robot. URDF files and networks for the sets for some robot-environments settings can be downloaded [here](https://drive.google.com/drive/folders/1qYyiK0fJ9Na2y4qfXjis64UNJ4L7IwVC?usp=sharing). Place the folder robots and nn_models in the root folder and follow the instruction in nn_models to use the networks properly.
 
-## NOTICE
-Check last version of the code in branch `devel`
-
 ## Installation
 - Clone the repository\
 `git clone https://github.com/idra-lab/safe-mpc.git`
