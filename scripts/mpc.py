@@ -86,7 +86,7 @@ x_init = x_guess[:,0,:]
 
 # MPC simulation 
 conv_idx, collisions_idx, viable_idx = [], [], []
-x_sim_list, u_list, x_viable = [], [], []
+x_sim_list, u_list, r_list, x_viable = [], [], [], []
 stats = []
 traj_costs = [[] for _ in range(x_init.shape[0])]
 EVAL = False
@@ -113,6 +113,7 @@ for i in range(0,params.test_num):#x_init.shape[0]):
     x0 = x_init[i]
     x_sim = np.empty((params.n_steps + 1, model.nx)) * np.nan
     u = np.empty((params.n_steps, model.nu)) * np.nan
+    r_index = np.empty((params.n_steps, 1)) * np.nan 
     x_sim[0] = x0
 
     controller.setGuess(x_guess[i], u_guess[i])
@@ -277,7 +278,7 @@ for i in range(0,params.test_num):#x_init.shape[0]):
             viable_idx.remove(i)
     print(f'initial state: {x_sim[0]}')
 
-    x_sim_list.append(x_sim), u_list.append(u)
+    x_sim_list.append(x_sim), u_list.append(u), r_list.append(r_index)
 
 viable_idx = [i for i in viable_idx if i not in collisions_idx]
 viable_idx = list(set(viable_idx))
@@ -306,6 +307,7 @@ for field, t in zip(controller.time_fields, np.quantile(times, 0.99, axis=0)):
 with open(f'{params.DATA_DIR}{model_name}_{cont_name}_use_net{controller.model.params.use_net}_{horizon}hor_{int(params.alpha)}sm_{traj__track}noise_{args["noise"]}_control_noise{args["control_noise"]}_q_collision_margins_{args["joint_bounds_margin"]}_{args["collision_margin"]}_mpc.pkl', 'wb') as f:
     pickle.dump({'x': np.asarray(x_sim_list),
                  'u': np.asarray(u_list),
+                 'r': np.asarray(r_list),
                  'conv_idx' : conv_idx,
                  'collisions_idx' : collisions_idx,
                  'unconv_idx' : unconv_idx,

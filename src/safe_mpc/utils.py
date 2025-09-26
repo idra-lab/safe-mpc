@@ -51,7 +51,6 @@ def get_ocp_acados(cont_name, model) -> AbstractController:
                     'receding': HTWAController,
                     'real_receding': HTWAController,
                     'parallel': HTWAController,
-                    'parallel2': HTWAController,
                     'st_analytic': HTWAController,
                     'htwa_analytic': HTWAController,
                     'constraint_everywhere': HTWAController,

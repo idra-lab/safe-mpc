@@ -9,10 +9,12 @@ from safe_mpc.robot_visualizer import RobotVisualizer
 from tqdm import tqdm
 from copy import deepcopy
 
+VIZ_FLAG = 0
+
 args = parse_args()
 model_name = args['system']
 
-ocp_names = ['naive','zerovel','st','htwa','receding','parallel','real']
+ocp_names = ['naive','zerovel','st','htwa','receding','parallel','real_receding']
 params_list, models, ocps, optis = [], [], [],[]
 for name in ocp_names:
     params_list.append(Parameters(model_name, rti=False))
@@ -27,10 +29,11 @@ succ, fails, skip_ics = 0, 0, 0
 sampler = qmc.Halton(models[0].nq, scramble=False)
 x_guess, u_guess = [[] for _ in ocp_names], [[] for _ in ocp_names]
 
-rviz = RobotVisualizer(params_list[0], n_dofs=4)
-if params_list[0].obs_flag:
-    rviz.addObstacles(params_list[0].obstacles)
-rviz.init_capsule(params_list[0].robot_capsules+params_list[0].obst_capsules)
+if VIZ_FLAG:
+    rviz = RobotVisualizer(params_list[0], n_dofs=4)
+    if params_list[0].obs_flag:
+        rviz.addObstacles(params_list[0].obstacles)
+    rviz.init_capsule(params_list[0].robot_capsules+params_list[0].obst_capsules)
 
 start_time = time.time()
 progress_bar = tqdm(total=num_ics, desc=f'Generating initial conditions, alpha {ocps[0].model.params.alpha}')
@@ -39,7 +42,8 @@ while succ < num_ics:
     x0 = np.zeros((models[0].nx,))
     x0[:models[0].nq] = q0
 
-    rviz.displayWithEESphere(x0[:4],params_list[0].robot_capsules+params_list[0].obst_capsules, params_list[0].spheres_robot)
+    if VIZ_FLAG:
+        rviz.displayWithEESphere(x0[:4],params_list[0].robot_capsules+params_list[0].obst_capsules, params_list[0].spheres_robot)
 
     if ocps[0].model.checkCollision(x0):
         u0 = np.zeros((models[0].nu,)) 

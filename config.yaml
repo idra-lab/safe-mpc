@@ -113,12 +113,29 @@ obstacles:
   #   color: [0,1,1,1]
   #   position: [0.6,-0.2,0.12]
   #   transform:
+  #   radius: 0.05
+  #   color: [0,1,1,1]
+  #   position: [0.6,-0.2,0.12]
+  #   transform:
   #     - [1,0,0,0.6]
+  #     - [0,1,0,-0.2]
   #     - [0,1,0,-0.2]
   #     - [0,0,1,0.12]
   #     - [0,0,0,1]
   #   bounds: [0,1e6] 
+  #   bounds: [0,1e6] 
 
+  # - name: 'ball3'
+  #   type: 'sphere-obs'
+  #   radius: 0.05
+  #   color: [0,1,1,1]
+  #   position: [0.6,0.2,0.12]
+  #   transform:
+  #     - [1,0,0,0.6]
+  #     - [0,1,0,0.2]
+  #     - [0,0,1,0.12]
+  #     - [0,0,0,1]
+  #   bounds: [0,1e6] 
   # - name: 'ball3'
   #   type: 'sphere-obs'
   #   radius: 0.05
@@ -179,17 +196,17 @@ obstacles_capsules:
     color: [0, 1, 1, 1]
 
 spheres_robot:
-  # - name: 'ee_sphere'
-  #   link_name: 'gripperMover'
-  #   radius: 0.075  
-  #   spatial_offset:  [0.035, 0., 0.] 
-  #   color: [0,0.5,0.5,0.3]
+  - name: 'ee_sphere'
+    link_name: 'gripperMover'
+    radius: 0.075  
+    spatial_offset:  [0.035, 0., 0.] 
+    color: [0,0.5,0.5,0.3]
 
 collision_pairs:
-  - ['arm','ee']
+  # - ['arm','ee']
   #- ['ee','ball']
-  - ['ee', 'floor']
-  - ['forearm','floor']
+  # - ['ee', 'floor']
+  # - ['forearm','floor']
   #- ['forearm', 'ball']
   - ['ee','fixed1']
   - ['ee','fixed2']

@@ -72,12 +72,11 @@ else:
     costs_list = np.load(f'{params.DATA_DIR}{model_name}_{hor}hor_{int(alpha)}sm_opt_costs.npy')  
     #costs_list = []
 
-cont_names = ['naive', 'zerovel', 'st', 'htwa', 'receding','real_receding','parallel2']
-cont_names = ['naive', 'zerovel', 'st', 'htwa', 'receding','parallel2']
+cont_names = ['naive', 'zerovel', 'st', 'htwa', 'receding','parallel']
 
 X_traj, U_traj, task_not_coll, task_failed = {}, {}, {}, {}
 for c in cont_names:
-    if c in ['st', 'htwa', 'receding','real_receding','parallel2']:
+    if c in ['st', 'htwa', 'receding','real_receding','parallel']:
         #print(c)
         use_net = True
     else:
@@ -182,7 +181,7 @@ file_prefix = f'{params.DATA_DIR}{model_name}_{hor}hor_{int(alpha)}sm'
 with open(f'{file_prefix}_scoresfalse.pkl', 'wb') as f:
     pickle.dump(res, f) 
 
-print(f"scores {res['parallel2']['fails']}")
+print(f"scores {res['parallel']['fails']}")
 
 with open(file, 'wb') as f:
     pickle.dump(costs_states, f)
