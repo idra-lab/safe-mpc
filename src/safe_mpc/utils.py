@@ -67,8 +67,6 @@ def get_controller(cont_name, model) -> AbstractController:
                     'st': STController,
                     'htwa': HTWAController,
                     'receding': RecedingController,
-                    'receding_parallel': RecedingParallelController,
-                    'parallel2': ParalleltwoController2,
                     'real_receding': RealReceding,
                     'constraint_everywhere': ControllerSafeSetEverywhere}
     if cont_name in controllers:
