@@ -33,7 +33,7 @@ data = pickle.load(open(f'{params.DATA_DIR}z1_naive_use_netNone_25hor_20sm_noise
 x = data['x']
 #x=x.reshape((1,x.shape[0],x.shape[1]))
 time.sleep(1)
-for j in range(35,params.test_num):
+for j in range(0,params.test_num):
     print(f"Trajectory {j + 1}")
     rviz.display(x[j][0, :model.nq])
     time.sleep(1)
