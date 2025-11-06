@@ -142,7 +142,7 @@ def randomize_model(urdf_file_path,noise_mass=0, noise_inertia=0, noise_cm_posit
                 # print(f'new_mass: {new_mass}')
                 # break
 
-                print(f'Mass noise sample: {mass_noise_sample/noise_mass}')
+                
                 #print(f'New mass changed from {mass.get("value")} to {new_mass}\n')
                 mass.set('value', str(new_mass))
                 #print(f'new_mass: {new_mass}')
