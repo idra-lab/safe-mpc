@@ -64,7 +64,7 @@ class Parameters:
         self.PKG_DIR = os.path.dirname(os.path.abspath(__file__))
         self.ROOT_DIR = self.PKG_DIR.split('/src/safe_mpc')[0]
         self.CONF_DIR = os.path.join(self.ROOT_DIR, 'config/')
-        self.DATA_DIR = os.path.join(self.ROOT_DIR, 'data_noise/')
+        self.DATA_DIR = os.path.join(self.ROOT_DIR, 'data/')
         self.GEN_DIR = os.path.join(self.ROOT_DIR, 'generated/')
         if filename is None:
             parameters = yaml.load(open(self.ROOT_DIR + '/config.yaml'), Loader=yaml.FullLoader)
@@ -201,7 +201,7 @@ class Parameters:
                 for entry in sphere_robot:
                     sphere[entry] = sphere_robot[entry]
                 self.spheres_robot.append(sphere)
-                self.sphere[-1]['radius'] -= self.collision_margin
+                self.spheres_robot[-1]['radius'] -= self.collision_margin
 
         self.collisions_pairs = []
         # assign pairs
@@ -234,7 +234,7 @@ class Parameters:
         # capsule['end_points'] = [np.hstack((spatial_offset,np.ones(1))), np.hstack((spatial_offset,np.ones(1)))]
         capsule['type'] = 'moving_capsule'
         capsule['end_points'] = [np.hstack((np.zeros(3),np.ones(1))), np.hstack((np.zeros(3),np.ones(1)))]
-        capsule['direction'] = np.sign(self.joints[self.links.index(capsule['link_name'])].origin.xyz[capsule['link_axis']])
+        capsule['direction'] = 1 #np.sign(self.joints[self.links.index(capsule['link_name'])].origin.xyz[capsule['link_axis']])
         capsule['end_points'][1][capsule['link_axis']] += capsule['direction']*capsule['length']
         capsule['end_points_T_fun'] = [None]
         capsule['end_points_fk'] = [None,None]

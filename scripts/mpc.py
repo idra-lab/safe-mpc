@@ -45,8 +45,7 @@ controller = get_controller(cont_name, model)
 #     cost_controller = ReachTargetNLS(model,params.Q_weight,params.R_weight)
 #     print('Cost NLS')
 # else:    
-print('Cost EXT')
-cost_controller = ReachTargetEXT(model,params.Q_weight,params.R_weight)
+cost_controller = ReachTargetNLS(model,params.Q_weight,params.R_weight)
 
 cost_controller.set_solver_cost(controller)
 controller.build_controller(build_controllers)

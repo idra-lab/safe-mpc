@@ -30,7 +30,7 @@ model = AdamModel(params)
 
 # cost = TrackingMovingCircleNLS(model,params.Q_weight,params.R_weight)
 #cost = Tracking8NLS(model,params.Q_weight,params.R_weight)
-cost = ReachTargetEXT(model,params.Q_weight,params.R_weight)
+cost = ReachTargetNLS(model,params.Q_weight,params.R_weight)
 cost_naive_zerovel = ReachTargetNLS(model,params.Q_weight,params.R_weight)
 ocp_name = args['controller']
 params.cont_name = args['controller']
@@ -69,10 +69,6 @@ ocp_zerovel.build_controller(build = build_controllers)
 ocp_zerovel.resetHorizon(args['horizon'])
 
 
-params.test_num = 100
-params_naive.test_num = 100
-params_zerovel.test_num = 100
-
 
 num_ics = params.test_num
 succ, fails, skip_ics = 0, 0, 0
@@ -90,7 +86,7 @@ x_guess_zerovel, u_guess_zerovel = [], []
 
 print(f'Use network: {ocp_with_net.model.params.use_net}')
 
-TEST_NOISE = True
+TEST_NOISE = False
 
 progress_bar = tqdm(total=num_ics, desc=f'Generating initial conditions, alpha {ocp_with_net.model.params.alpha}')
 start_time = time.time()

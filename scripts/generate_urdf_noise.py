@@ -17,8 +17,7 @@ params.noise_mass = args['noise']
 params.noise_inertia = args['noise']
 params.noise_cm = args['noise']
 
-NOISES=[0.1,1.3,2.5,3.7,5.0,10.0,15.0,20.0,25.0,30.0]
-NOISES=[80.0]
+NOISES=[0.0,0.1,1.3,2.5,3.7,5.0,10.0,15.0,20.0,25.0,30.0]
 
 # NOISES=[5]
 

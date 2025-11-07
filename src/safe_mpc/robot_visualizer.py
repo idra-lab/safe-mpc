@@ -95,10 +95,16 @@ class RobotVisualizer:
             self.viz.viewer[f'world/obstacle/sphere2{capsule["index"]}'].set_transform(np.eye(4))
 
     def render_capsule(self,q,capsule):
-        rot_mat = np.array([[0,1,0,0],
-                            [1,0,0,0],
-                            [0,0,1,0],
-                            [0,0,0,1]])
+        if self.params.urdf_name == 'z1':
+            rot_mat = np.array([[0,1,0,0],
+                                [1,0,0,0],
+                                [0,0,1,0],
+                                [0,0,0,1]])
+        elif self.params.urdf_name == 'fr3':
+            rot_mat = np.array([[0,1,0,0],
+                                [0,0,1,0],
+                                [1,0,0,0],
+                                [0,0,0,1]]).T
         # self.viz.viewer[f'world/obstacle/sphere1{capsule["index"]}'].set_property('visible', True)
         if capsule['type'] == 'moving_capsule':
             self.viz.viewer[f'world/obstacle/sphere1{capsule["index"]}'].set_transform(np.array(self.compute_T(capsule['end_points_T_fun'](q),capsule['end_points'][0])))
