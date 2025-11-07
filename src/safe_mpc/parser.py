@@ -201,7 +201,7 @@ class Parameters:
                 for entry in sphere_robot:
                     sphere[entry] = sphere_robot[entry]
                 self.spheres_robot.append(sphere)
-                self.sphere[-1]['radius'] -= self.collision_margin
+                self.spheres_robot[-1]['radius'] -= self.collision_margin
 
         self.collisions_pairs = []
         # assign pairs
