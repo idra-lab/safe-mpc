@@ -56,7 +56,6 @@ class AdamModel:
 
         self.amodel.name = params.urdf_name
         self.x = MX.sym("x", nq * 2)
-        self.x_dot = MX.sym("x_dot", nq * 2)
         self.u = MX.sym("u", nq)
         
         # Double integrator

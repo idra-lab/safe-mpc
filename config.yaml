@@ -1,4 +1,4 @@
-test_num: 10           # number of tests
+test_num: 1           # number of tests
 n_steps: 800              # number of time steps in each test
 cpu_num: 24
 
@@ -70,7 +70,7 @@ reg_term: 1e-6            # regularization term for anaytic safe set constraints
 
 frame_ee: 'fr3_hand_tcp' #  'gripperMover' #'fr3_hand_tcp' #
 ee_position: [0.0, 0., 0.] # ee position in in frame_ee 
-ee_ref: [0.7, 0.17, 0.13] 
+ee_ref: [0.7, 0.25, 0.13] 
 #ee_ref: [0.7, 0.4, 0.12] 
 #ee_ref: [0.7, 0.38, 0.10] 
 ee_radius: 0.075
@@ -274,7 +274,7 @@ collision_pairs:
   # - ['forearm','ball2']
   # - ['ee','ball3']
   # - ['forearm','ball3']
-  - ['link7','link7']
+  - ['link7','link5']
   - ['hand','link5']
   - ['link5','link3']
   - ['link5','ball']
