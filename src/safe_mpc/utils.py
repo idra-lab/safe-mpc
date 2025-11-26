@@ -168,6 +168,8 @@ def randomize_model(urdf_file_path,noise_mass=0, noise_inertia=0, noise_cm_posit
                 cm_pos.set('xyz', ' '.join(map(str, pos)))
 
         # Write the modified URDF back to a file
+        print(urdf_file_path[:-5])
+        print(controller_name)
         tree.write(urdf_file_path[:-5] + f'_randomized{controller_name}.urdf', encoding='utf-8', xml_declaration=True)
 
 # def randomize_model(urdf_file_path,noise_mass=0, noise_inertia=0, noise_cm_position=0):

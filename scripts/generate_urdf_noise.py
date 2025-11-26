@@ -30,6 +30,7 @@ NOISES=[0.0,0.1,1.3,2.5,3.7,5.0,10.0,15.0,20.0,25.0,30.0]
 
 for noise in NOISES:
     for i in range(params.test_num):
+        print(i)
         randomize_model(params.robot_urdf, noise_mass = noise, noise_inertia = noise, noise_cm_position = noise, controller_name=(f'noise{noise}_{i}'))
         print(f'Iteration {i}, noise {noise}')
     reset_rng1(i+1)

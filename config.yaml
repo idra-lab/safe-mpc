@@ -1,4 +1,4 @@
-test_num: 1           # number of tests
+test_num: 10           # number of tests
 n_steps: 800              # number of time steps in each test
 cpu_num: 24
 
