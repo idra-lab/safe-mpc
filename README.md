@@ -7,7 +7,6 @@ Until now we tested the framework with the Unitree Z1 robot. URDF files and netw
 ## Installation
 - Clone the repository\
 `git clone https://github.com/idra-lab/safe-mpc.git`
-- Move on the branch devel
 - Install the requirements\
 `pip install -r requirements.txt`
 - Follow the instructions to install [CasADi](https://web.casadi.org/get/), [Acados](https://docs.acados.org/installation/index.html) and [Pytorch](https://pytorch.org/get-started/locally/).
